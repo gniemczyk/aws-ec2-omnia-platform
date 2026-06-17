@@ -9,12 +9,6 @@ name: "Uruchom Platform"
 
 on:
   workflow_dispatch:
-    inputs:
-      instance_type_override:
-        description: "Nadpisanie typu instancji (puste = domyslny z vars)"
-        required: false
-        default: ""
-        type: string
 
 # Wymagane uprawnienia do uwierzytelniania AWS OIDC
 permissions:
@@ -33,7 +27,7 @@ jobs:
   start-platform:
     name: "Uruchomienie i konfiguracja Omnia Platform"
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(vars.WORKFLOW_TIMEOUT_MINUTES || '15') }}
+    timeout-minutes: 20
 
     steps:
       # =====================================================================
@@ -150,14 +144,16 @@ jobs:
       - name: Instalacja Ansible i pluginu AWS SSM
         run: |
           pip install ansible boto3 botocore
-
+          
           ansible-galaxy collection install -r ansible/requirements.yml --force
-
+          
+          # Instalacja Session Manager Plugin przez apt
           curl -fsSL "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" \
             -o /tmp/session-manager-plugin.deb
-          sudo dpkg -i /tmp/session-manager-plugin.deb
-
-          session-manager-plugin --version || true
+          sudo apt-get update > /dev/null
+          sudo dpkg -i /tmp/session-manager-plugin.deb > /dev/null
+          
+          session-manager-plugin --version
           ansible --version
 
       # =====================================================================
@@ -208,7 +204,7 @@ jobs:
       # KROK 9: Publikacja podsumowania z gotowymi poleceniami
       # =====================================================================
       - name: Publikacja statusu platformy
-        if: always()
+        if: success()
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
@@ -241,3 +237,19 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "> ⏰ **Pamietaj o zatrzymaniu platformy!** Uruchom workflow 'Zatrzymaj Platform' aby zaoszczedzic koszty." >> $GITHUB_STEP_SUMMARY
+
+      - name: Publikacja statusu platformy (FAILURE)
+        if: failure()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## ❌ Błąd podczas uruchamiania platformy" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Workflow nie powiódł się. Sprawdź logi powyżej." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Możliwe przyczyny:" >> $GITHUB_STEP_SUMMARY
+          echo "- Brakuje EC2_INSTANCE_ID w GitHub Variables" >> $GITHUB_STEP_SUMMARY
+          echo "- Instancja nie istnieje lub jest w nieoczekiwanym stanie" >> $GITHUB_STEP_SUMMARY
+          echo "- Agent SSM się nie uruchomił (instancja bez dostępu do VPC Endpoints/internetu)" >> $GITHUB_STEP_SUMMARY
+          echo "- Błąd w Ansible playbook - sprawdź logi" >> $GITHUB_STEP_SUMMARY
+          echo "- Brakuje apps.json lub ansible/playbook.yml" >> $GITHUB_STEP_SUMMARY
