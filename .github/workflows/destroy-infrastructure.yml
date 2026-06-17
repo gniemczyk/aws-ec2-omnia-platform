@@ -80,7 +80,7 @@ jobs:
       - name: Terraform destroy
         working-directory: terraform
         run: |
-          terraform init -no-color -backend=false
+          terraform init -no-color -backend=false -reconfigure
           
           terraform destroy \
             -var="aws_region=${{ env.AWS_REGION }}" \
