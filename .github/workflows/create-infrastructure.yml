@@ -221,7 +221,7 @@ jobs:
       # =====================================================================
       # KROK 10: Podsumowanie
       # =====================================================================
-            - name: Publikacja podsumowania
+      - name: Publikacja podsumowania
         if: always()
         run: |
           echo "## ✅ Infrastruktura gotowa" >> $GITHUB_STEP_SUMMARY

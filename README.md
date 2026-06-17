@@ -1,4 +1,4 @@
-# Omnia Platform
+# AWS EC2 Omnia Platform
 
 Wszechstronna platforma EC2 z kontenerami Docker, sterowana plikiem `apps.json` i katalogiem `app/`. Uruchamiana jednym kliknieciem w GitHub Actions. Zero otwartych portow, zero SSH, zero hardcode.
 
