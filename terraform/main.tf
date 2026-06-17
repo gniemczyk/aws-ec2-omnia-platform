@@ -104,7 +104,7 @@ locals {
 
   # Lista stref AZ gdzie dostepny jest t4g.small
   azs_with_instance_type = distinct([
-    for offering in data.aws_ec2_instance_type_offerings.available.offerings :
+    for offering in data.aws_ec2_instance_type_offerings.available.instance_type_offerings :
     offering.location
   ])
 
