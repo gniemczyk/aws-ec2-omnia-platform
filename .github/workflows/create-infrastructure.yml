@@ -71,7 +71,7 @@ jobs:
       # KROK 2: Instalacja Terraform
       # =====================================================================
       - name: Instalacja Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ">= 1.5.0"
 
@@ -171,18 +171,25 @@ jobs:
         id: terraform-output
         working-directory: terraform
         run: |
-          INSTANCE_ID=$(terraform output -raw instance_id)
-          VPC_ID=$(terraform output -raw vpc_id)
-          SG_ID=$(terraform output -raw security_group_id)
-          AZ=$(terraform output -raw availability_zone)
-          IAM_ROLE=$(terraform output -raw iam_role_arn)
-
-          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
-          echo "vpc_id=$VPC_ID" >> $GITHUB_OUTPUT
-          echo "security_group_id=$SG_ID" >> $GITHUB_OUTPUT
-          echo "availability_zone=$AZ" >> $GITHUB_OUTPUT
-          echo "iam_role_arn=$IAM_ROLE" >> $GITHUB_OUTPUT
-
+          # Pobierz wszystkie outputy w formacie JSON
+          OUTPUTS=$(terraform output -json)
+          
+          # Ekstrahuj wartości z JSON-a za pomocą jq
+          INSTANCE_ID=$(echo "$OUTPUTS" | jq -r '.instance_id.value')
+          VPC_ID=$(echo "$OUTPUTS" | jq -r '.vpc_id.value')
+          SG_ID=$(echo "$OUTPUTS" | jq -r '.security_group_id.value')
+          AZ=$(echo "$OUTPUTS" | jq -r '.availability_zone.value')
+          IAM_ROLE=$(echo "$OUTPUTS" | jq -r '.iam_role_arn.value')
+          
+          # Ustawienie output variables bez debug mode
+          {
+            echo "instance_id=$INSTANCE_ID"
+            echo "vpc_id=$VPC_ID"
+            echo "security_group_id=$SG_ID"
+            echo "availability_zone=$AZ"
+            echo "iam_role_arn=$IAM_ROLE"
+          } >> $GITHUB_OUTPUT
+          
           echo "=== Terraform Outputs ===" 
           echo "Instance ID: $INSTANCE_ID"
           echo "VPC ID: $VPC_ID"
