@@ -57,8 +57,8 @@ jobs:
       - name: Inicjalizacja do walidacji
         working-directory: terraform
         run: |
-          echo "🔧 Inicjalizacja Terraform (bez backendu)..."
-          terraform init -backend=false -no-color
+          echo "🔧 Inicjalizacja Terraform (bez backendu, z upgrade providera)..."
+          terraform init -backend=false -upgrade -no-color
 
       # =====================================================================
       # KROK 5: Walidacja składni
