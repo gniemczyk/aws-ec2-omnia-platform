@@ -194,7 +194,12 @@ jobs:
       # KROK 10: Ustawienie GitHub Variables (przez CLI)
       # =====================================================================
       - name: Instalacja GitHub CLI
-        uses: cli/setup-gh-cli@v1
+        run: |
+          echo "📦 Instalacja GitHub CLI..."
+          sudo apt-get update > /dev/null
+          sudo apt-get install -y gh > /dev/null
+          echo "✅ GitHub CLI zainstalowany"
+          gh --version
 
       - name: Ustawienie GitHub Variables
         env:

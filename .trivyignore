@@ -1,0 +1,15 @@
+# =============================================================================
+# Trivy - Ignorowanie znanych podatności
+# =============================================================================
+# Format: CVE-XXXX-XXXXX lub ID podatności
+# Każdy wpis w osobnej linii
+# Użycie: Zdolności Trivy do ignorowania podatności, które:
+#   - Zostały już przeanalizowane
+#   - Zostały umieszczone na liście Known Vulnerabilities
+#   - Nie mają wpływu na naszą architekturę
+# =============================================================================
+
+# Przykład:
+# CVE-2021-12345  # Krótki opis podatności i powód ignorowania
+
+# Dodaj wpisy wg potrzeb po analizie wyników Trivy
