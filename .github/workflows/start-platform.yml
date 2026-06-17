@@ -1,0 +1,192 @@
+# =============================================================================
+# URUCHOMIENIE PLATFORMY - Omnia Platform
+# =============================================================================
+# Wyzwalane recznie przez workflow_dispatch.
+# Wszystkie wartosci pochodza z GitHub Variables/Secrets - BRAK hardcode.
+# =============================================================================
+
+name: "Uruchom Platform"
+
+on:
+  workflow_dispatch:
+    inputs:
+      instance_type_override:
+        description: "Nadpisanie typu instancji (puste = domyslny z vars)"
+        required: false
+        default: ""
+        type: string
+
+# Wymagane uprawnienia do uwierzytelniania AWS OIDC
+permissions:
+  id-token: write
+  contents: read
+
+# Wszystkie wartosci z GitHub Variables i Secrets - zero hardcode
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+  AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+  PLATFORM_NAME: ${{ vars.PLATFORM_NAME }}
+  PLATFORM_BASE_DIR: ${{ vars.PLATFORM_BASE_DIR }}
+
+jobs:
+  start-platform:
+    name: "Uruchomienie i konfiguracja Omnia Platform"
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(vars.WORKFLOW_TIMEOUT_MINUTES || '15') }}
+
+    steps:
+      # =====================================================================
+      # KROK 1: Pobranie repozytorium (dla apps.json i katalogu app/)
+      # =====================================================================
+      - name: Pobranie repozytorium
+        uses: actions/checkout@v4
+
+      # =====================================================================
+      # KROK 2: Uwierzytelnianie do AWS przez OIDC (bez statycznych kluczy)
+      # =====================================================================
+      - name: Konfiguracja poswiadczen AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-start-platform
+
+      # =====================================================================
+      # KROK 3: Uruchomienie instancji EC2
+      # =====================================================================
+      - name: Uruchomienie instancji EC2
+        id: start-ec2
+        run: |
+          echo "Uruchamianie instancji: $EC2_INSTANCE_ID"
+
+          STATE=$(aws ec2 describe-instances \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --query 'Reservations[0].Instances[0].State.Name' \
+            --output text)
+
+          echo "Aktualny stan: $STATE"
+
+          if [ "$STATE" == "running" ]; then
+            echo "Instancja juz dziala"
+          elif [ "$STATE" == "stopped" ]; then
+            aws ec2 start-instances --instance-ids "$EC2_INSTANCE_ID"
+            echo "Komenda start wyslana"
+          else
+            echo "::error::Instancja w nieoczekiwanym stanie: $STATE"
+            exit 1
+          fi
+
+      # =====================================================================
+      # KROK 4: Oczekiwanie na stan running instancji
+      # =====================================================================
+      - name: Oczekiwanie na uruchomienie instancji
+        run: |
+          echo "Oczekiwanie na stan 'running'..."
+          aws ec2 wait instance-running --instance-ids "$EC2_INSTANCE_ID"
+          echo "Instancja dziala"
+
+      # =====================================================================
+      # KROK 5: Oczekiwanie na agenta SSM
+      # =====================================================================
+      - name: Oczekiwanie na gotowosc agenta SSM
+        run: |
+          echo "Oczekiwanie na rejestracje agenta SSM..."
+          MAX_RETRIES=${{ vars.SSM_MAX_RETRIES || '30' }}
+          RETRY_INTERVAL=${{ vars.SSM_RETRY_INTERVAL || '10' }}
+
+          for i in $(seq 1 $MAX_RETRIES); do
+            SSM_STATUS=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=$EC2_INSTANCE_ID" \
+              --query 'InstanceInformationList[0].PingStatus' \
+              --output text 2>/dev/null || echo "None")
+
+            if [ "$SSM_STATUS" == "Online" ]; then
+              echo "Agent SSM jest online (proba $i/$MAX_RETRIES)"
+              break
+            fi
+
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "::error::Agent SSM nie uruchomil sie po $((MAX_RETRIES * RETRY_INTERVAL))s"
+              exit 1
+            fi
+
+            echo "  Proba $i/$MAX_RETRIES - Status SSM: $SSM_STATUS - oczekiwanie ${RETRY_INTERVAL}s..."
+            sleep $RETRY_INTERVAL
+          done
+
+      # =====================================================================
+      # KROK 6: Instalacja Ansible i zaleznosci
+      # =====================================================================
+      - name: Instalacja Ansible i pluginu AWS SSM
+        run: |
+          pip install ansible boto3 botocore
+
+          ansible-galaxy collection install -r ansible/requirements.yml --force
+
+          curl -fsSL "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" \
+            -o /tmp/session-manager-plugin.deb
+          sudo dpkg -i /tmp/session-manager-plugin.deb
+
+          session-manager-plugin --version || true
+          ansible --version
+
+      # =====================================================================
+      # KROK 7: Uruchomienie Ansible Playbook (przez SSM - bez SSH!)
+      # =====================================================================
+      - name: Uruchomienie Ansible Playbook przez SSM
+        env:
+          EC2_INSTANCE_ID: ${{ env.EC2_INSTANCE_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          PLATFORM_NAME: ${{ env.PLATFORM_NAME }}
+          PLATFORM_BASE_DIR: ${{ env.PLATFORM_BASE_DIR }}
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+        run: |
+          cd ansible
+
+          ansible-playbook playbook.yml \
+            -i inventory.yml \
+            -v \
+            --timeout 120
+
+      # =====================================================================
+      # KROK 8: Pobranie URL-i tuneli i publikacja w podsumowaniu
+      # =====================================================================
+      - name: Pobranie URL-i tuneli przez SSM
+        id: get-urls
+        run: |
+          PLATFORM_BASE_DIR="${PLATFORM_BASE_DIR:-/opt/omnia}"
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[\"cat ${PLATFORM_BASE_DIR}/tunnel-urls.md\"]" \
+            --query 'Command.CommandId' \
+            --output text)
+
+          sleep 5
+
+          REPORT=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$EC2_INSTANCE_ID" \
+            --query 'StandardOutputContent' \
+            --output text)
+
+          echo "$REPORT"
+          echo "$REPORT" >> $GITHUB_STEP_SUMMARY
+
+      # =====================================================================
+      # KROK 9: Publikacja podsumowania
+      # =====================================================================
+      - name: Publikacja statusu platformy
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "### Metadane platformy" >> $GITHUB_STEP_SUMMARY
+          echo "- **Instance ID:** \`$EC2_INSTANCE_ID\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region:** \`$AWS_REGION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Uruchomil:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run:** [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> **Pamietaj o zatrzymaniu platformy!** Uruchom workflow 'Zatrzymaj Platform'." >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,114 @@
+# =============================================================================
+# ZATRZYMANIE PLATFORMY - Omnia Platform
+# =============================================================================
+# Wyzwalane recznie przez workflow_dispatch.
+# Wszystkie wartosci pochodza z GitHub Variables/Secrets - BRAK hardcode.
+# Natychmiast zatrzymuje instancje EC2 i zamraza koszty obliczeniowe.
+# =============================================================================
+
+name: "Zatrzymaj Platform"
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Wpisz 'stop' aby potwierdzic zatrzymanie"
+        required: true
+        default: "stop"
+        type: string
+
+  # Opcjonalnie: automatyczne zatrzymanie wg harmonogramu
+  # schedule:
+  #   - cron: ${{ vars.AUTO_STOP_CRON || '0 23 * * *' }}
+
+permissions:
+  id-token: write
+  contents: read
+
+# Wszystkie wartosci z GitHub Variables i Secrets - zero hardcode
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+  AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+
+jobs:
+  stop-platform:
+    name: "Zatrzymanie instancji Omnia Platform"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # =====================================================================
+      # KROK 1: Walidacja potwierdzenia
+      # =====================================================================
+      - name: Walidacja potwierdzenia
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm != 'stop'
+        run: |
+          echo "::error::Wymagane potwierdzenie. Wpisz 'stop' w polu wejsciowym."
+          exit 1
+
+      # =====================================================================
+      # KROK 2: Uwierzytelnianie do AWS przez OIDC
+      # =====================================================================
+      - name: Konfiguracja poswiadczen AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-stop-platform
+
+      # =====================================================================
+      # KROK 3: Zatrzymanie instancji EC2
+      # =====================================================================
+      - name: Zatrzymanie instancji EC2
+        id: stop-ec2
+        run: |
+          echo "Zatrzymywanie instancji: $EC2_INSTANCE_ID"
+
+          STATE=$(aws ec2 describe-instances \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --query 'Reservations[0].Instances[0].State.Name' \
+            --output text)
+
+          echo "Aktualny stan: $STATE"
+
+          if [ "$STATE" == "stopped" ]; then
+            echo "Instancja juz zatrzymana - brak dzialan"
+            echo "already_stopped=true" >> $GITHUB_OUTPUT
+          elif [ "$STATE" == "running" ]; then
+            aws ec2 stop-instances --instance-ids "$EC2_INSTANCE_ID"
+            echo "Komenda zatrzymania wyslana"
+            echo "already_stopped=false" >> $GITHUB_OUTPUT
+          else
+            echo "::warning::Instancja w stanie '$STATE' - proba zatrzymania"
+            aws ec2 stop-instances --instance-ids "$EC2_INSTANCE_ID" --force || true
+            echo "already_stopped=false" >> $GITHUB_OUTPUT
+          fi
+
+      # =====================================================================
+      # KROK 4: Oczekiwanie na zatrzymanie instancji
+      # =====================================================================
+      - name: Oczekiwanie na zatrzymanie instancji
+        if: steps.stop-ec2.outputs.already_stopped != 'true'
+        run: |
+          echo "Oczekiwanie na stan 'stopped'..."
+          aws ec2 wait instance-stopped --instance-ids "$EC2_INSTANCE_ID"
+          echo "Instancja zatrzymana"
+
+      # =====================================================================
+      # KROK 5: Raport statusu
+      # =====================================================================
+      - name: Publikacja potwierdzenia zatrzymania
+        if: always()
+        run: |
+          echo "## Platforma zatrzymana" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Wlasciwosc | Wartosc |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Instancja | \`$EC2_INSTANCE_ID\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Region | \`$AWS_REGION\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Zatrzymal | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Czas | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> **Koszty zamrozone.** Tunele Cloudflare zakonczone automatycznie." >> $GITHUB_STEP_SUMMARY
+          echo "> Dane EBS zachowane - uruchom 'Uruchom Platform' aby wznowic." >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,279 @@
+# =============================================================================
+# Omnia Platform - Glowny Playbook
+# =============================================================================
+# Laczy sie przez AWS SSM (bez SSH). Wdraza kontenery Docker na podstawie:
+#   - apps.json (definicja aplikacji)
+#   - app/<name>/ (Dockerfile + docker-compose.yml dla kazdej aplikacji)
+# Eksponuje uslugi przez Cloudflare Quick Tunnels (trycloudflare.com).
+#
+# Wszystkie sciezki i wartosci sa parametryzowane - brak hardcode.
+# =============================================================================
+
+---
+- name: Wdrozenie Omnia Platform
+  hosts: omnia_instance
+  become: true
+  gather_facts: true
+
+  vars:
+    # Wszystkie zmienne z inventory/group_vars, nadpisywalne przez --extra-vars
+    apps_config_path: "{{ platform_base_dir }}/{{ apps_config_filename }}"
+    apps_dir: "{{ platform_base_dir }}/app"
+    results_file: "{{ platform_base_dir }}/tunnel-urls.md"
+
+  tasks:
+    # =========================================================================
+    # FAZA 1: Przygotowanie systemu
+    # =========================================================================
+
+    - name: Oczekiwanie na zakonczenie cloud-init
+      command: cloud-init status --wait
+      changed_when: false
+      timeout: 300
+
+    - name: Aktualizacja cache apt
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Instalacja wymaganych pakietow systemowych
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+          - jq
+          - curl
+          - ca-certificates
+        state: present
+
+    - name: Uruchomienie i wlaczenie uslugi Docker
+      systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    # =========================================================================
+    # FAZA 2: Instalacja cloudflared (binarka ARM64)
+    # =========================================================================
+
+    - name: Pobranie binarki cloudflared dla ARM64
+      get_url:
+        url: "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+        dest: "{{ cloudflared_bin }}"
+        mode: "0755"
+        force: true
+      retries: 3
+      delay: 5
+
+    - name: Weryfikacja instalacji cloudflared
+      command: "{{ cloudflared_bin }} version"
+      changed_when: false
+      register: cloudflared_version_output
+
+    - name: Wyswietlenie wersji cloudflared
+      debug:
+        msg: "{{ cloudflared_version_output.stdout }}"
+
+    # =========================================================================
+    # FAZA 3: Wgranie konfiguracji i katalogu aplikacji
+    # =========================================================================
+
+    - name: Utworzenie katalogu bazowego platformy
+      file:
+        path: "{{ platform_base_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Skopiowanie apps.json na instancje
+      copy:
+        src: "../{{ apps_config_filename }}"
+        dest: "{{ apps_config_path }}"
+        mode: "0644"
+
+    - name: Skopiowanie katalogu app/ na instancje
+      synchronize:
+        src: "../app/"
+        dest: "{{ apps_dir }}/"
+        recursive: true
+        delete: false
+      # Fallback jesli synchronize nie dziala przez SSM
+      ignore_errors: true
+      register: sync_result
+
+    - name: Fallback - kopiowanie katalogu app/ przez copy
+      copy:
+        src: "../app/"
+        dest: "{{ apps_dir }}/"
+        mode: "0755"
+      when: sync_result is failed
+
+    - name: Odczyt i parsowanie apps.json
+      slurp:
+        src: "{{ apps_config_path }}"
+      register: apps_json_raw
+
+    - name: Dekodowanie konfiguracji aplikacji
+      set_fact:
+        apps: "{{ apps_json_raw.content | b64decode | from_json }}"
+
+    - name: Wyswietlenie aplikacji do wdrozenia
+      debug:
+        msg: "Wdrazanie {{ apps | length }} aplikacji: {{ apps | map(attribute='name') | join(', ') }}"
+
+    # =========================================================================
+    # FAZA 4: Uruchomienie kontenerow Docker
+    # =========================================================================
+
+    - name: Zatrzymanie istniejacych kontenerow platformy
+      shell: |
+        docker ps -a --filter "label=platform=omnia" -q | xargs -r docker rm -f
+      changed_when: true
+      ignore_errors: true
+
+    - name: Generowanie pliku .env dla kazdej aplikacji (compose)
+      copy:
+        content: |
+          # Wygenerowane automatycznie przez Ansible - nie edytowac recznie
+          APP_PORT={{ item.port }}
+          {% for env_var in item.env | default([]) %}
+          {{ env_var }}
+          {% endfor %}
+        dest: "{{ apps_dir }}/{{ item.name }}/.env"
+        mode: "0600"
+      loop: "{{ apps }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.compose | default(false)
+
+    - name: Wdrozenie aplikacji przez docker-compose (jesli compose=true)
+      shell: |
+        cd {{ apps_dir }}/{{ item.name }}
+        docker-compose down --remove-orphans 2>/dev/null || true
+        docker-compose up -d --build
+      loop: "{{ apps }}"
+      loop_control:
+        label: "{{ item.name }} (docker-compose)"
+      when: item.compose | default(false)
+      register: compose_results
+
+    - name: Wdrozenie aplikacji przez docker run (jesli compose=false)
+      shell: |
+        # Zatrzymanie istniejacego kontenera
+        docker rm -f "omnia-{{ item.name }}" 2>/dev/null || true
+
+        # Budowanie flag zmiennych srodowiskowych
+        ENV_FLAGS=""
+        {% for env_var in item.env | default([]) %}
+        ENV_FLAGS="$ENV_FLAGS -e '{{ env_var }}'"
+        {% endfor %}
+
+        # Uruchomienie kontenera
+        eval docker run -d \
+          --name "omnia-{{ item.name }}" \
+          --restart unless-stopped \
+          --label "platform=omnia" \
+          -p "127.0.0.1:{{ item.port }}:{{ item.port }}" \
+          $ENV_FLAGS \
+          "{{ item.image }}"
+      loop: "{{ apps }}"
+      loop_control:
+        label: "{{ item.name }} (docker run)"
+      when: not (item.compose | default(false))
+      register: run_results
+
+    - name: Oczekiwanie na gotowosc kontenerow
+      pause:
+        seconds: 10
+
+    - name: Weryfikacja dzialajacych kontenerow
+      shell: docker ps --filter "label=platform=omnia" --format "table {% raw %}{{.Names}}\t{{.Status}}\t{{.Ports}}{% endraw %}"
+      changed_when: false
+      register: docker_ps_output
+
+    - name: Wyswietlenie dzialajacych kontenerow
+      debug:
+        msg: "{{ docker_ps_output.stdout_lines }}"
+
+    # =========================================================================
+    # FAZA 5: Uruchomienie szybkich tuneli Cloudflare
+    # =========================================================================
+
+    - name: Utworzenie katalogu logow tuneli
+      file:
+        path: "{{ tunnel_log_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Zakonczenie istniejacych procesow cloudflared
+      shell: pkill -f cloudflared || true
+      changed_when: true
+
+    - name: Uruchomienie Cloudflare Quick Tunnel dla kazdej aplikacji
+      shell: |
+        nohup {{ cloudflared_bin }} tunnel --url http://localhost:{{ item.port }} \
+          > {{ tunnel_log_dir }}/{{ item.name }}.log 2>&1 &
+        echo $!
+      loop: "{{ apps }}"
+      loop_control:
+        label: "{{ item.name }} -> localhost:{{ item.port }}"
+      register: tunnel_pids
+
+    - name: Wyswietlenie PID-ow tuneli
+      debug:
+        msg: "Tunel dla {{ item.item.name }}: PID {{ item.stdout }}"
+      loop: "{{ tunnel_pids.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    # =========================================================================
+    # FAZA 6: Ekstrakcja URL-i tuneli i generowanie raportu Markdown
+    # =========================================================================
+
+    - name: Oczekiwanie na nawiazanie tuneli
+      pause:
+        seconds: "{{ tunnel_wait_seconds }}"
+
+    - name: Ekstrakcja URL-i tuneli z logow
+      shell: |
+        grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' {{ tunnel_log_dir }}/{{ item.name }}.log | head -1
+      loop: "{{ apps }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: tunnel_urls
+      retries: 3
+      delay: 3
+      until: tunnel_urls.stdout | length > 0
+      ignore_errors: true
+
+    - name: Generowanie tabeli wynikow w formacie Markdown
+      copy:
+        content: |
+          ## {{ platform_name }} - Aktywne uslugi
+
+          | Aplikacja | Obraz | Port | Publiczny URL |
+          |-----------|-------|------|---------------|
+          {% for result in tunnel_urls.results %}
+          | {{ result.item.name }} | `{{ result.item.image }}` | {{ result.item.port }} | {{ result.stdout | default('oczekiwanie...') }} |
+          {% endfor %}
+
+          ---
+          *Wygenerowano: {{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ')) }}*
+          *Instancja: {{ ansible_host | default(lookup('env', 'EC2_INSTANCE_ID')) }}*
+          *Tunele sa efemeryczne - URL-e zmieniaja sie przy kazdym uruchomieniu*
+        dest: "{{ results_file }}"
+        mode: "0644"
+
+    - name: Odczyt wygenerowanego raportu
+      slurp:
+        src: "{{ results_file }}"
+      register: markdown_report
+
+    - name: Wyswietlenie koncowego raportu
+      debug:
+        msg: "{{ markdown_report.content | b64decode }}"
+
+    - name: Zapisanie raportu do pliku lokalnego (dla GitHub Actions)
+      fetch:
+        src: "{{ results_file }}"
+        dest: "/tmp/tunnel-urls.md"
+        flat: true

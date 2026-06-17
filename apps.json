@@ -1,0 +1,33 @@
+# =============================================================================
+# Omnia Platform - Konfiguracja aplikacji
+# =============================================================================
+# Kazdy obiekt definiuje aplikacje do wdrozenia na platformie.
+# Pola:
+#   name    - unikalna nazwa (odpowiada podkatalogowi w app/)
+#   image   - obraz Docker (uzywany jesli brak Dockerfile w app/<name>/)
+#   port    - port na ktorym nasluchuje aplikacja
+#   env     - tablica zmiennych srodowiskowych
+#   compose - czy uzywac docker-compose.yml z app/<name>/ (domyslnie true)
+# =============================================================================
+[
+  {
+    "name": "grafana",
+    "image": "grafana/grafana-oss:latest",
+    "port": 3000,
+    "compose": true,
+    "env": [
+      "GF_SECURITY_ADMIN_USER=admin",
+      "GF_SECURITY_ADMIN_PASSWORD=change-me",
+      "GF_INSTALL_PLUGINS=grafana-clock-panel"
+    ]
+  },
+  {
+    "name": "api",
+    "image": "hashicorp/http-echo:latest",
+    "port": 8080,
+    "compose": false,
+    "env": [
+      "ECHO_TEXT=Omnia Platform is running"
+    ]
+  }
+]

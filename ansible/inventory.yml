@@ -1,0 +1,33 @@
+# =============================================================================
+# Inventory Ansible - Polaczenie SSM (bez SSH)
+# =============================================================================
+# Wszystkie wartosci sa pobierane ze zmiennych srodowiskowych.
+# Brak hardcode - kazda wartosc jest parametryzowana.
+# =============================================================================
+
+all:
+  vars:
+    # Zmienne platformy - nadpisywane przez env lub extra-vars
+    platform_name: "{{ lookup('env', 'PLATFORM_NAME') | default('omnia-platform', true) }}"
+    platform_base_dir: "{{ lookup('env', 'PLATFORM_BASE_DIR') | default('/opt/omnia', true) }}"
+    apps_config_filename: "{{ lookup('env', 'APPS_CONFIG_FILE') | default('apps.json', true) }}"
+    cloudflared_bin: "{{ lookup('env', 'CLOUDFLARED_BIN') | default('/usr/local/bin/cloudflared', true) }}"
+    tunnel_log_dir: "{{ lookup('env', 'TUNNEL_LOG_DIR') | default('/tmp/tunnels', true) }}"
+    tunnel_wait_seconds: "{{ lookup('env', 'TUNNEL_WAIT_SECONDS') | default('8', true) | int }}"
+
+  hosts:
+    omnia_instance:
+      # ID instancji - wstrzykiwane z GitHub Actions lub Terraform output
+      ansible_host: "{{ lookup('env', 'EC2_INSTANCE_ID') }}"
+
+      # Polaczenie SSM - BEZ SSH, BEZ kluczy, BEZ otwartych portow
+      ansible_connection: community.aws.aws_ssm
+
+      # Region AWS - ze zmiennej srodowiskowej
+      ansible_aws_ssm_region: "{{ lookup('env', 'AWS_REGION') }}"
+
+      # Sciezka do pluginu Session Manager
+      ansible_aws_ssm_plugin: "{{ lookup('env', 'SSM_PLUGIN_PATH') | default('/usr/local/sessionmanagerplugin/bin/session-manager-plugin', true) }}"
+
+      # Interpreter Python na Ubuntu 24.04
+      ansible_python_interpreter: /usr/bin/python3
