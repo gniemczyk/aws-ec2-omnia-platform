@@ -80,11 +80,7 @@ jobs:
       - name: Terraform destroy
         working-directory: terraform
         run: |
-          terraform init -no-color \
-            -backend-config="bucket=${{ env.PLATFORM_NAME }}-tfstate" \
-            -backend-config="key=terraform.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=${{ env.PLATFORM_NAME }}-tflock"
+          terraform init -no-color -backend=false
           
           terraform destroy \
             -var="aws_region=${{ env.AWS_REGION }}" \
