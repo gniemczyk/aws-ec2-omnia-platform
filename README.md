@@ -40,10 +40,10 @@ GitHub Actions (workflow_dispatch)
 │   ├── playbook.yml                   # Playbook (app/ + cloudflared)
 │   └── requirements.yml               # Kolekcje Ansible Galaxy
 └── .github/workflows/
-    ├── 01-create-infrastructure.yml   # Tworzenie infrastruktury (Terraform)
-    ├── 02-start-platform.yml          # Uruchomienie platformy (Ansible)
-    ├── 03-stop-platform.yml           # Zatrzymanie platformy
-    └── 04-destroy-infrastructure.yml  # Zniszczenie infrastruktury (Terraform)
+    ├── create-infrastructure.yml      # Tworzenie infrastruktury (Terraform)
+    ├── start-platform.yml             # Uruchomienie platformy (Ansible)
+    ├── stop-platform.yml              # Zatrzymanie platformy
+    └── destroy-infrastructure.yml     # Zniszczenie infrastruktury (Terraform)
 ```
 
 ## Wymagania lokalne (opcjonalne)
@@ -218,10 +218,10 @@ Terraform automatycznie:
 
 | Workflow | Opis | Czyści koszty |
 |----------|------|---|
-| **01-create-infrastructure.yml** | Terraform apply: VPC + EC2 + sieci | ❌ Nie (EC2 startuje) |
-| **02-start-platform.yml** | Ansible: Docker + aplikacje + Cloudflare | ❌ Nie |
-| **03-stop-platform.yml** | Stop EC2 (oszczędza rachunki) | ✅ Tak |
-| **04-destroy-infrastructure.yml** | Terraform destroy (nieodwracalne!) | ✅ Tak |
+| **Utwórz Infrastrukturę** | Terraform apply: VPC + EC2 + sieci | ❌ Nie (EC2 startuje) |
+| **Uruchom Platform** | Ansible: Docker + aplikacje + Cloudflare | ❌ Nie |
+| **Zatrzymaj Platform** | Stop EC2 (oszczędza rachunki) | ✅ Tak |
+| **Zniszcz Infrastrukturę** | Terraform destroy (nieodwracalne!) | ✅ Tak |
 
 ---
 
