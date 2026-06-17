@@ -3,7 +3,7 @@
 # =============================================================================
 # Automatyczne tworzenie EC2 + VPC + sieci przez Terraform.
 # Wyzwalane recznie przez workflow_dispatch.
-# Automatycznie ustawia GitHub Variables i Secrets z Terraform outputs.
+# Pobiera Terraform outputs i wyświetla w podsumowaniu (GitHub Variables trzeba ustawić ręcznie).
 # Wszystkie wartosci z GitHub Variables/Secrets - BRAK hardcode.
 # =============================================================================
 
@@ -115,7 +115,6 @@ jobs:
               --region ${{ env.AWS_REGION }}
           fi
 
-      # =====================================================================
       # =====================================================================
       # KROK 5: Terraform init
       # =====================================================================
