@@ -39,6 +39,36 @@ jobs:
 
     steps:
       # =====================================================================
+      # KROK 0: Walidacja GitHub Variables
+      # =====================================================================
+      - name: Walidacja GitHub Variables
+        run: |
+          ERRORS=0
+          
+          if [ -z "${{ env.AWS_REGION }}" ]; then
+            echo "::error::Brakuje GitHub Variable: AWS_REGION"
+            ERRORS=$((ERRORS+1))
+          fi
+          
+          if [ -z "${{ env.EC2_INSTANCE_ID }}" ]; then
+            echo "::error::Brakuje GitHub Variable: EC2_INSTANCE_ID"
+            echo "::notice::Uruchom workflow 'Utwórz Infrastrukturę' aby je ustawic"
+            ERRORS=$((ERRORS+1))
+          fi
+          
+          if [ -z "${{ env.AWS_ROLE_ARN }}" ]; then
+            echo "::error::Brakuje GitHub Secret: AWS_ROLE_ARN"
+            ERRORS=$((ERRORS+1))
+          fi
+          
+          if [ $ERRORS -gt 0 ]; then
+            echo "::error::Brakuje $ERRORS wymaganych wartosci!"
+            exit 1
+          fi
+          
+          echo "✅ Wszystkie wymagane Variables sa ustawione"
+
+      # =====================================================================
       # KROK 1: Walidacja potwierdzenia
       # =====================================================================
       - name: Walidacja potwierdzenia
@@ -99,9 +129,9 @@ jobs:
       # KROK 5: Raport statusu
       # =====================================================================
       - name: Publikacja potwierdzenia zatrzymania
-        if: always()
+        if: success()
         run: |
-          echo "## Platforma zatrzymana" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Platforma zatrzymana" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Wlasciwosc | Wartosc |" >> $GITHUB_STEP_SUMMARY
           echo "|------------|---------|" >> $GITHUB_STEP_SUMMARY
@@ -112,3 +142,15 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "> **Koszty zamrozone.** Tunele Cloudflare zakonczone automatycznie." >> $GITHUB_STEP_SUMMARY
           echo "> Dane EBS zachowane - uruchom 'Uruchom Platform' aby wznowic." >> $GITHUB_STEP_SUMMARY
+
+      - name: Publikacja statusu (FAILURE)
+        if: failure()
+        run: |
+          echo "## ❌ Błąd podczas zatrzymywania platformy" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Workflow nie powiódł się. Sprawdź logi powyżej." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Możliwe przyczyny:" >> $GITHUB_STEP_SUMMARY
+          echo "- Brakuje EC2_INSTANCE_ID w GitHub Variables" >> $GITHUB_STEP_SUMMARY
+          echo "- Instancja nie istnieje" >> $GITHUB_STEP_SUMMARY
+          echo "- Brakuje uprawnień IAM do zatrzymywania EC2" >> $GITHUB_STEP_SUMMARY
