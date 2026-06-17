@@ -98,8 +98,8 @@ jobs:
       # =====================================================================
       - name: Bootstrap Backend
         env:
-          BUCKET_NAME: ${{ env.PLATFORM_NAME }}-tf-state-${{ github.repository_owner }}
-          TABLE_NAME: ${{ env.PLATFORM_NAME }}-tf-locks
+          BUCKET_NAME: ${{ env.PLATFORM_NAME }}-tfstate
+          TABLE_NAME: ${{ env.PLATFORM_NAME }}-tflock
         run: |
           # Utworzenie bucketu S3
           if ! aws s3 ls "s3://$BUCKET_NAME" 2>&1 | grep -q 'NoSuchBucket'; then
@@ -130,10 +130,10 @@ jobs:
         working-directory: terraform
         run: |
           terraform init -no-color \
-            -backend-config="bucket=${{ env.PLATFORM_NAME }}-tf-state-${{ github.repository_owner }}" \
+            -backend-config="bucket=${{ env.PLATFORM_NAME }}-tfstate" \
             -backend-config="key=terraform.tfstate" \
             -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=${{ env.PLATFORM_NAME }}-tf-locks"
+            -backend-config="dynamodb_table=${{ env.PLATFORM_NAME }}-tflock"
 
       # =====================================================================
       # KROK 6: Terraform validate
