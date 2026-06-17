@@ -11,27 +11,6 @@ name: "Utwórz Infrastrukturę"
 
 on:
   workflow_dispatch:
-    inputs:
-      aws_region:
-        description: "Region AWS (np. eu-central-1)"
-        required: true
-        type: string
-        default: "eu-central-1"
-      instance_type:
-        description: "Typ instancji EC2 (np. t4g.small)"
-        required: false
-        type: string
-        default: "t4g.small"
-      platform_name:
-        description: "Nazwa platformy (prefiks zasobów)"
-        required: false
-        type: string
-        default: "omnia-platform"
-      auto_approve:
-        description: "Czy automatycznie zaakceptować terraform apply?"
-        required: false
-        type: boolean
-        default: false
 
 # Wymagane uprawnienia do uwierzytelniania AWS OIDC i edycji GitHub Variables
 permissions:
@@ -40,8 +19,9 @@ permissions:
   repository-projects: write
 
 env:
-  AWS_REGION: ${{ github.event.inputs.aws_region || 'eu-central-1' }}
-  PLATFORM_NAME: ${{ github.event.inputs.platform_name || 'omnia-platform' }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  PLATFORM_NAME: ${{ vars.PLATFORM_NAME }}
+  AUTO_APPROVE: true
 
 jobs:
   create-infrastructure:
@@ -56,6 +36,31 @@ jobs:
       iam_role_arn: ${{ steps.terraform-output.outputs.iam_role_arn }}
 
     steps:
+      # =====================================================================
+      # KROK 0: Sprawdzenie czy infrastruktura juz istnieje
+      # =====================================================================
+      - name: Sprawdzenie istniejącej infrastruktury
+        run: |
+          if [ -n "${{ vars.EC2_INSTANCE_ID }}" ]; then
+            echo "::error::Infrastruktura już istnieje!"
+            echo "::error::EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}"
+            echo ""
+            echo "❌ Tworzenie infrastruktury jest niemożliwe!"
+            echo ""
+            echo "Aby:"
+            echo "  1️⃣  Uruchomić platformę → użyj workflow 'Uruchom Platform'"
+            echo "  2️⃣  Zatrzymać platformę → użyj workflow 'Zatrzymaj Platform'"
+            echo "  3️⃣  Zniszczyć infrastrukturę → użyj workflow 'Zniszcz Infrastrukturę'"
+            echo ""
+            echo "Jeśli chcesz zacząć od nowa:"
+            echo "  - Najpierw uruchom 'Zniszcz Infrastrukturę'"
+            echo "  - Usuń GitHub Variables: EC2_INSTANCE_ID, PLATFORM_BASE_DIR"
+            echo "  - Wtedy będziesz mógł ponownie tworzyć infrastrukturę"
+            exit 1
+          else
+            echo "✅ Brak istniejącej infrastruktury - można tworzyć"
+          fi
+
       # =====================================================================
       # KROK 1: Pobranie repozytorium
       # =====================================================================
@@ -111,6 +116,7 @@ jobs:
           fi
 
       # =====================================================================
+      # =====================================================================
       # KROK 5: Terraform init
       # =====================================================================
       - name: Terraform init
@@ -123,7 +129,7 @@ jobs:
             -backend-config="dynamodb_table=${{ env.PLATFORM_NAME }}-tf-locks"
 
       # =====================================================================
-      # KROK 5: Terraform validate
+      # KROK 6: Terraform validate
       # =====================================================================
       - name: Terraform validate
         working-directory: terraform
@@ -131,7 +137,7 @@ jobs:
           terraform validate -no-color
 
       # =====================================================================
-      # KROK 6: Terraform plan
+      # KROK 7: Terraform plan
       # =====================================================================
       - name: Terraform plan
         id: plan
@@ -139,19 +145,18 @@ jobs:
         run: |
           terraform plan \
             -var="aws_region=${{ env.AWS_REGION }}" \
-            -var="instance_type=${{ github.event.inputs.instance_type || 't4g.small' }}" \
             -var="project_name=${{ env.PLATFORM_NAME }}" \
             -no-color \
             -out=tfplan
 
       # =====================================================================
-      # KROK 7: Terraform apply (manual approval lub auto)
+      # KROK 8: Terraform apply (manual approval lub auto)
       # =====================================================================
       - name: Terraform apply
         id: apply
         working-directory: terraform
         run: |
-          if [ "${{ github.event.inputs.auto_approve }}" == "true" ]; then
+          if [ "${{ env.AUTO_APPROVE }}" == "true" ]; then
             echo "Auto-approve wlaczony - aplikowanie bez pytania"
             terraform apply -no-color -auto-approve tfplan
           else
@@ -160,7 +165,7 @@ jobs:
           fi
 
       # =====================================================================
-      # KROK 8: Pobranie outputow Terraform
+      # KROK 9: Pobranie outputow Terraform
       # =====================================================================
       - name: Pobranie Terraform outputow
         id: terraform-output
@@ -186,7 +191,7 @@ jobs:
           echo "IAM Role: $IAM_ROLE"
 
       # =====================================================================
-      # KROK 9: Ustawienie GitHub Variables (przez CLI)
+      # KROK 10: Ustawienie GitHub Variables (przez CLI)
       # =====================================================================
       - name: Instalacja GitHub CLI
         uses: cli/setup-gh-cli@v1
@@ -219,7 +224,7 @@ jobs:
           echo "✅ GitHub Variables ustawione pomyslnie"
 
       # =====================================================================
-      # KROK 10: Podsumowanie
+      # KROK 11: Podsumowanie
       # =====================================================================
       - name: Publikacja podsumowania
         if: always()
