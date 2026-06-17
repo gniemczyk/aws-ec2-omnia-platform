@@ -12,7 +12,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 5.53.0"
     }
   }
 
@@ -104,7 +104,7 @@ locals {
 
   # Lista stref AZ gdzie dostepny jest t4g.small
   azs_with_instance_type = distinct(
-    data.aws_ec2_instance_type_offerings.available.instance_type_offerings[*].location
+    [for item in data.aws_ec2_instance_type_offerings.available : item.location]
   )
 
   # Sortowanie AZ z preferencja na preferred_az_index
@@ -424,12 +424,11 @@ resource "aws_instance" "platform" {
   }
 
   # Walidacja: jesli zadna AZ nie ma pojemnosci - rzuci blad z jasnym komunikatem
-  precondition {
-    condition     = local.selected_az != null
-    error_message = local.validation_error
-  }
-
   lifecycle {
+    precondition {
+      condition     = local.selected_az != null
+      error_message = local.validation_error
+    }
     ignore_changes = [ami]
   }
 }
