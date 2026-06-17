@@ -8,30 +8,13 @@ output "available_azs_all" {
 }
 
 output "azs_with_instance_type" {
-  description = "Strefy AZ gdzie dostepny jest typ instancji (z dynamicznym failoverem)"
-  value = try(
-    distinct(
-      [for o in data.aws_ec2_instance_type_offering.available.instance_type_offering : o.location]
-    ),
-    []
-  )
+  description = "Wszystkie dostepne strefy AZ w regionie"
+  value       = data.aws_availability_zones.available.names
 }
 
 output "selected_az_failover_info" {
-  description = "Informacja o wyborze AZ - czy to byla preferowana czy failover"
-  value = (
-    contains(
-      try(
-        distinct(
-          [for o in data.aws_ec2_instance_type_offering.available.instance_type_offering : o.location]
-        ),
-        []
-      ),
-      data.aws_availability_zones.available.names[var.preferred_az_index]
-    ) ?
-    "AZ '${aws_instance.platform.availability_zone}' - preferowana (indeks ${var.preferred_az_index})"
-    : "AZ '${aws_instance.platform.availability_zone}' - failover (preferowana niedostepna, uzyta pierwsza dostepna)"
-  )
+  description = "Informacja o wyborze AZ"
+  value       = "AZ '${aws_instance.platform.availability_zone}' (preferred_az_index: ${var.preferred_az_index})"
 }
 
 output "instance_id" {

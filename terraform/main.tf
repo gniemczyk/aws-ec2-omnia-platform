@@ -54,22 +54,6 @@ data "aws_availability_zones" "available" {
   }
 }
 
-# Sprawdzenie dostepnosci typu instancji w kazdej strefie AZ
-# Filtuje strefy, gdzie t4g.small jest dostepny
-data "aws_ec2_instance_type_offering" "available" {
-  filter {
-    name   = "instance-type"
-    values = [var.instance_type]
-  }
-
-  filter {
-    name   = "location"
-    values = data.aws_availability_zones.available.names
-  }
-
-  location_type = "availability-zone"
-}
-
 # Najnowszy obraz Debian dla architektury ARM64 (Graviton)
 data "aws_ami" "debian_arm64" {
   most_recent = true
@@ -102,39 +86,10 @@ locals {
   # Lista dostepnych stref AZ w regionie
   available_azs = data.aws_availability_zones.available.names
 
-  # Lista stref AZ gdzie dostepny jest t4g.small
-  azs_with_instance_type = try(
-    distinct(
-      [for o in data.aws_ec2_instance_type_offering.available.instance_type_offering : o.location]
-    ),
-    []
-  )
-
-  # Sortowanie AZ z preferencja na preferred_az_index
-  # 1. Branie pierwsze dostepne AZ ze wskazanym indeksem
-  # 2. Jesli indeks poza zakresem, branie pierwsze dostepne
-  # 3. Jesli prefererowana AZ niedostepna, przechodzenie do nastepnych
-  preferred_az_candidates = [
-    for idx in range(length(local.available_azs)) :
-    local.available_azs[
-      (var.preferred_az_index + idx) % length(local.available_azs)
-    ]
-    if contains(local.azs_with_instance_type, local.available_azs[
-      (var.preferred_az_index + idx) % length(local.available_azs)
-    ])
-  ]
-
-  # Wybrana strefa AZ - pierwsza dostepna z preferowanym failoverem
-  selected_az = length(local.preferred_az_candidates) > 0 ? local.preferred_az_candidates[0] : (
-    length(local.azs_with_instance_type) > 0 ? local.azs_with_instance_type[0] : null
-  )
-
-  # Walidacja: jesli zadna AZ nie ma pojemnosci - blad z dobrym komunikatem
-  validation_error = (
-    local.selected_az == null ?
-    "BLAD: Typ instancji ${var.instance_type} niedostepny w zadnej strefie AZ regionu ${var.aws_region}. Dostepne AZ: ${join(", ", local.available_azs)}, ale zadna nie ma pojemnosci dla tego typu. Sprobuj inny typ instancji lub zmien region."
-    : ""
-  )
+  # Wybrana strefa AZ z preferencja na preferred_az_index
+  # Jesli indeks poza zakresem - wraca do indexu 0
+  selected_az_index = var.preferred_az_index % length(local.available_azs)
+  selected_az       = local.available_azs[local.selected_az_index]
 
   # Prefiks nazw zasobow
   name_prefix = var.project_name
@@ -426,12 +381,8 @@ resource "aws_instance" "platform" {
     Name = "${local.name_prefix}-instance"
   }
 
-  # Walidacja: jesli zadna AZ nie ma pojemnosci - rzuci blad z jasnym komunikatem
+  # Ignorowanie zmian AMI - mogą się pojawiać aktualizacje Debian
   lifecycle {
-    precondition {
-      condition     = local.selected_az != null
-      error_message = local.validation_error
-    }
     ignore_changes = [ami]
   }
 }
