@@ -89,6 +89,7 @@ jobs:
           terraform destroy \
             -var="aws_region=${{ env.AWS_REGION }}" \
             -var="project_name=${{ env.PLATFORM_NAME }}" \
+            -lock=false \
             -no-color \
             -auto-approve
 
