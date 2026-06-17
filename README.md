@@ -70,9 +70,9 @@ Potrzebne sa tylko 2 rzeczy w GitHub:
 | `AWS_REGION` | GitHub Variables | np. `eu-central-1` |
 | `PLATFORM_NAME` | GitHub Variables | np. `omnia-platform` |
 
-> 💡 **Ważne:** Rola IAM (`AWS_ROLE_ARN`) musi posiadać uprawnienia do tworzenia i zarządzania zasobami S3 (bucket stanu) oraz DynamoDB (blokowanie stanu).
+> 💡 **Ważne:** Rola IAM (`AWS_ROLE_ARN`) musi posiadać uprawnienia do tworzenia i zarządzania zasobami S3 (bucket stanu), DynamoDB (blokowanie stanu) i AWS Systems Manager (SSM Parameter Store).
 
-**Wszystkie inne zmienne ustawia sie automatycznie przez workflow!**
+**Wszystkie inne parametry (EC2_INSTANCE_ID, PLATFORM_BASE_DIR) ustawia się automatycznie w AWS SSM Parameter Store!**
 
 ## AWS - jednorazowa konfiguracja OIDC
 
@@ -159,7 +159,11 @@ Wpisz parametry (lub zostaw domyślne):
 - ✅ Automatyczna konfiguracja backendu (S3 + DynamoDB)
 - ✅ Terraform tworzy VPC, Subnet, Security Group, EC2
 - ✅ Dynamiczny failover AZ - jeśli brakuje capacity, próbuje następną
-- ✅ Automatyczne ustawienie GitHub Variables z Terraform outputs
+- ✅ **Parametry automatycznie zapisane w AWS SSM Parameter Store** (`/omnia/` prefix):
+  - `/omnia/EC2_INSTANCE_ID`
+  - `/omnia/AWS_REGION`
+  - `/omnia/PLATFORM_NAME`
+  - `/omnia/PLATFORM_BASE_DIR`
 - ✅ Gotowe do użytku!
 
 ### 3. Uruchom workflow "Uruchom Platform"
@@ -167,6 +171,7 @@ Wpisz parametry (lub zostaw domyślne):
 GitHub -> Actions -> "Uruchom Platform" -> Run workflow
 
 **Co się stanie:**
+- ✅ Parametry automatycznie pobierane z AWS SSM Parameter Store
 - ✅ Instancja EC2 startuje
 - ✅ Ansible przez SSM wdrażana aplikacje z `apps.json`
 - ✅ Cloudflare tunnels tworzą publiczne URL-e
@@ -195,11 +200,31 @@ Wpisz `destroy` aby potwierdzić.
 **OSTRZEŻENIE: Ta operacja jest nieodwracalna!**
 - ✅ Wszystkie zasoby AWS usunięte
 - ✅ EBS volumes usunięte
+- ✅ **Parametry z AWS SSM Parameter Store usunięte**
 - ⚠️ Brak kopii zapasowych
 
 ---
 
-## AZ Failover (automatyczny)
+## AWS SSM Parameter Store - Konfiguracja automatyczna
+
+Wszystkie parametry konfiguracyjne są przechowywane w **AWS Systems Manager Parameter Store** pod prefixem `/omnia/`:
+
+| Parameter | Wartość | Źródło | Użycie |
+|-----------|---------|--------|--------|
+| `/omnia/EC2_INSTANCE_ID` | `i-0abc123def456789` | Terraform output | start/stop/destroy |
+| `/omnia/AWS_REGION` | `eu-central-1` | Terraform variable | start/stop workflows |
+| `/omnia/PLATFORM_NAME` | `omnia-platform` | GitHub Variable | S3 bucket naming |
+| `/omnia/PLATFORM_BASE_DIR` | `/opt/omnia` | Workflow default | Ansible paths |
+
+**Zalety SSM Parameter Store:**
+- ✅ Brak hardcoded values w workflow'ach
+- ✅ Brak konieczności ręcznego ustawiania GitHub Variables
+- ✅ Parametry automatycznie czyszczone przy destroy
+- ✅ Centralne miejsce konfiguracji (AWS)
+- ✅ Integracja z AWS IAM (bezpieczeństwo)
+- ✅ Free tier (do 10,000 parameters)
+
+---
 
 Terraform automatycznie:
 1. Pobiera wszystkie dostępne AZ w regionie
@@ -216,12 +241,34 @@ Terraform automatycznie:
 
 ## Workflow'i GitHub Actions
 
-| Workflow | Opis | Czyści koszty |
-|----------|------|---|
-| **Utwórz Infrastrukturę** | Terraform apply: VPC + EC2 + sieci | ❌ Nie (EC2 startuje) |
-| **Uruchom Platform** | Ansible: Docker + aplikacje + Cloudflare | ❌ Nie |
-| **Zatrzymaj Platform** | Stop EC2 (oszczędza rachunki) | ✅ Tak |
-| **Zniszcz Infrastrukturę** | Terraform destroy (nieodwracalne!) | ✅ Tak |
+| Workflow | Opis | Config Storage | Czyści koszty |
+|----------|------|---|---|
+| **Utwórz Infrastrukturę** | Terraform apply: VPC + EC2 + sieci | → SSM | ❌ Nie (EC2 startuje) |
+| **Uruchom Platform** | Ansible: Docker + aplikacje + Cloudflare | ← SSM | ❌ Nie |
+| **Zatrzymaj Platform** | Stop EC2 (oszczędza rachunki) | ← SSM | ✅ Tak |
+| **Zniszcz Infrastrukturę** | Terraform destroy + SSM cleanup | ← SSM | ✅ Tak |
+
+### Przepływ konfiguracji
+
+```
+1. Utwórz Infrastrukturę
+   ↓
+   Terraform outputs
+   ↓
+   AWS SSM Parameter Store (/omnia/*)
+   ↓
+2. Uruchom Platform (automatycznie pobiera z SSM)
+   ↓
+   EC2 + Ansible + Apps
+   ↓
+3. Zatrzymaj Platform (czyta EC2_INSTANCE_ID z SSM)
+   ↓
+   EC2 stopped
+   ↓
+4. Zniszcz Infrastrukturę (usuwaja z SSM po Terraform destroy)
+   ↓
+   Clean slate
+```
 
 ---
 

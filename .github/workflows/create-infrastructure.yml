@@ -212,7 +212,7 @@ jobs:
           INSTANCE_ID="${{ steps.terraform-output.outputs.instance_id }}"
           AWS_REGION="${{ env.AWS_REGION }}"
           PLATFORM_NAME="${{ env.PLATFORM_NAME }}"
-          PLATFORM_BASE_DIR="${{ env.PLATFORM_BASE_DIR }:-/opt/omnia"
+          PLATFORM_BASE_DIR="/opt/omnia"
           
           echo "Zapisywanie parametrow do SSM Parameter Store..."
           
@@ -245,7 +245,6 @@ jobs:
             --region us-east-1
           
           echo "✅ Parametry zapisane w SSM Parameter Store (us-east-1)"
-
 
       # =====================================================================
       # KROK 11: Podsumowanie
@@ -292,5 +291,5 @@ jobs:
           echo "- Brakuje AWS_ROLE_ARN w GitHub Secrets" >> $GITHUB_STEP_SUMMARY
           echo "- Brakuje AWS_REGION w GitHub Variables" >> $GITHUB_STEP_SUMMARY
           echo "- Brakuje PLATFORM_NAME w GitHub Variables" >> $GITHUB_STEP_SUMMARY
-          echo "- Błędy uprawnień GitHub Variables (actions: write)" >> $GITHUB_STEP_SUMMARY
+          echo "- Błędy uprawnień (odczyt z SSM Parameter Store)" >> $GITHUB_STEP_SUMMARY
           echo "- Brak pojemności dla t4g.small w wybranym regionie/AZ" >> $GITHUB_STEP_SUMMARY
