@@ -67,7 +67,10 @@ Potrzebne sa tylko 2 rzeczy w GitHub:
 | Co | Gdzie | Wartosc |
 |----|-------|---------|
 | `AWS_ROLE_ARN` | GitHub Secrets | `arn:aws:iam::ACCOUNT_ID:role/github-actions-role` |
-| `AWS_REGION` | GitHub Secrets (backup) | np. `eu-central-1` |
+| `AWS_REGION` | GitHub Variables | np. `eu-central-1` |
+| `PLATFORM_NAME` | GitHub Variables | np. `omnia-platform` |
+
+> 💡 **Ważne:** Rola IAM (`AWS_ROLE_ARN`) musi posiadać uprawnienia do tworzenia i zarządzania zasobami S3 (bucket stanu) oraz DynamoDB (blokowanie stanu).
 
 **Wszystkie inne zmienne ustawia sie automatycznie przez workflow!**
 
@@ -153,6 +156,7 @@ Wpisz parametry (lub zostaw domyślne):
 - `auto_approve`: `false` (wymagane potwierdzenie apply)
 
 **Co się stanie:**
+- ✅ Automatyczna konfiguracja backendu (S3 + DynamoDB)
 - ✅ Terraform tworzy VPC, Subnet, Security Group, EC2
 - ✅ Dynamiczny failover AZ - jeśli brakuje capacity, próbuje następną
 - ✅ Automatyczne ustawienie GitHub Variables z Terraform outputs

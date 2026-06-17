@@ -16,12 +16,14 @@ terraform {
     }
   }
 
-  # Opcjonalnie: odkomentuj dla zdalnego state
-  # backend "s3" {
-  #   bucket = "your-terraform-state-bucket"
-  #   key    = "omnia-platform/terraform.tfstate"
-  #   region = var.aws_region
-  # }
+  backend "s3" {
+    # Konfiguracja wstrzykiwana przez CLI podczas 'terraform init'
+    # bucket         = "..."
+    # key            = "..."
+    # region         = "..."
+    # dynamodb_table = "..."
+    # encrypt        = true
+  }
 }
 
 provider "aws" {

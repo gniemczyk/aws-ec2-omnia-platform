@@ -74,15 +74,7 @@ jobs:
           role-session-name: github-actions-destroy-infrastructure
 
       # =====================================================================
-      # KROK 6: Terraform init
-      # =====================================================================
-      - name: Terraform init
-        working-directory: terraform
-        run: |
-          terraform init -no-color
-
-      # =====================================================================
-      # KROK 7: Terraform destroy
+      # KROK 6: Terraform destroy
       # =====================================================================
       - name: Terraform destroy
         working-directory: terraform
@@ -90,6 +82,22 @@ jobs:
           terraform destroy \
             -no-color \
             -auto-approve
+
+      # =====================================================================
+      # KROK 7: Cleanup Backend (S3 + DynamoDB)
+      # =====================================================================
+      - name: Cleanup Backend
+        env:
+          BUCKET_NAME: ${{ env.PLATFORM_NAME }}-tf-state-${{ github.repository_owner }}
+          TABLE_NAME: ${{ env.PLATFORM_NAME }}-tf-locks
+        run: |
+          echo "Usuwanie tabeli DynamoDB..."
+          aws dynamodb delete-table --table-name "$TABLE_NAME" --region ${{ env.AWS_REGION }} || true
+
+          echo "Usuwanie bucketu S3..."
+          # Najpierw musimy usunac wersje obiektow, inaczej bucket nie usunie sie
+          aws s3 rm "s3://$BUCKET_NAME" --recursive || true
+          aws s3 rb "s3://$BUCKET_NAME" --force || true
 
       # =====================================================================
       # KROK 8: Czyszczenie GitHub Variables (opcjonalnie)
