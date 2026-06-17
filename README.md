@@ -40,38 +40,36 @@ GitHub Actions (workflow_dispatch)
 │   ├── playbook.yml                   # Playbook (app/ + cloudflared)
 │   └── requirements.yml               # Kolekcje Ansible Galaxy
 └── .github/workflows/
-    ├── start-platform.yml             # Uruchomienie platformy
+    ├── create-infrastructure.yml      # Tworzenie infrastruktury (Terraform)
+    ├── destroy-infrastructure.yml     # Zniszczenie infrastruktury (Terraform)
+    ├── start-platform.yml             # Uruchomienie platformy (Ansible)
     └── stop-platform.yml              # Zatrzymanie platformy
 ```
 
-## Wymagania lokalne
+## Wymagania lokalne (opcjonalne)
+
+Lokalne narzedzia sa **opcjonalne** - wszystko dziala przez GitHub Actions:
 
 ```bash
-# AWS CLI
+# Opcjonalnie: AWS CLI do manualnych operacji
 brew install awscli
 
-# Session Manager Plugin (wymagany do polaczenia SSM)
+# Opcjonalnie: Session Manager Plugin do SSM
 brew install --cask session-manager-plugin
-
-# Terraform
-brew install terraform
 ```
 
-## Konfiguracja - co trzeba zrobic
+**Terraform jest w GitHub Actions - nie trzeba go instalowac lokalnie!**
 
-Do uruchomienia calej platformy potrzeba skonfigurowac trzy rzeczy:
+## Konfiguracja - AWS (jednorazowo)
+
+Potrzebne sa tylko 2 rzeczy w GitHub:
 
 | Co | Gdzie | Wartosc |
 |----|-------|---------|
-| `AWS_REGION` | GitHub Variables | np. `eu-central-1` |
 | `AWS_ROLE_ARN` | GitHub Secrets | `arn:aws:iam::ACCOUNT_ID:role/github-actions-role` |
-| `PLATFORM_NAME` | GitHub Variables | np. `omnia-platform` |
+| `AWS_REGION` | GitHub Secrets (backup) | np. `eu-central-1` |
 
-Po `terraform apply` dodatkowo:
-
-| Co | Gdzie | Wartosc |
-|----|-------|---------|
-| `EC2_INSTANCE_ID` | GitHub Variables | z `terraform output instance_id` |
+**Wszystkie inne zmienne ustawia sie automatycznie przez workflow!**
 
 ## AWS - jednorazowa konfiguracja OIDC
 
@@ -121,44 +119,107 @@ Daje pelny dostep do wszystkich uslug AWS. W produkcji nalezy ja rozdzielic na m
 | `AmazonVPCFullAccess` | Siec VPC, Subnets, SG |
 | `IAMFullAccess` | Role, profile instancji |
 
-## Szybki start
+## Szybki start (pełna automatyzacja - GitHub Actions)
 
-### 1. Infrastruktura
+### 1. Konfiguracja AWS (OIDC) - jednorazowo
 
-```bash
-cd terraform
-cp terraform.tfvars.example terraform.tfvars
-# Edytuj terraform.tfvars (wymagane: aws_region)
-terraform init
-terraform apply
-```
+#### a) Utwórz OIDC Provider w AWS
 
-### 2. GitHub Variables i Secrets
+IAM -> Identity Providers -> Add provider:
 
-Settings -> Secrets and variables -> Actions:
+- **Type:** OpenID Connect
+- **URL:** `https://token.actions.githubusercontent.com`
+- **Audience:** `sts.amazonaws.com`
 
-**Variables:**
-- `AWS_REGION` = `eu-central-1`
-- `EC2_INSTANCE_ID` = (wartosc z `terraform output instance_id`)
-- `PLATFORM_NAME` = `omnia-platform`
+#### b) Utwórz IAM Role dla GitHub Actions
 
-**Secrets:**
-- `AWS_ROLE_ARN` = `arn:aws:iam::ACCOUNT_ID:role/github-actions-role`
+Utwórz rolę IAM z trust policy (patrz sekcja poniżej: "AWS - jednorazowa konfiguracja OIDC").
 
-### 3. Uzycie
+#### c) Ustawić Secret w GitHub
 
-- **Start:** GitHub -> Actions -> "Uruchom Platform" -> Run workflow
-- **Stop:** GitHub -> Actions -> "Zatrzymaj Platform" -> Run workflow
+Settings -> Secrets and variables -> Actions -> Create secret:
 
-## AZ Failover
+- **Name:** `AWS_ROLE_ARN`
+- **Value:** `arn:aws:iam::ACCOUNT_ID:role/github-actions-role`
 
-Terraform automatycznie pobiera dostepne strefy w regionie. Zmienna `preferred_az_index` wybiera preferowana (0=a, 1=b, 2=c). Jesli strefa nie ma pojemnosci - zmien indeks i uruchom ponownie:
+### 2. Uruchom workflow "Utwórz Infrastrukturę"
 
-```hcl
-preferred_az_index = 1   # przejdz na eu-central-1b
-```
+GitHub -> Actions -> "Utwórz Infrastrukturę" -> Run workflow
 
-## Katalog aplikacji (`app/`)
+Wpisz parametry (lub zostaw domyślne):
+- `aws_region`: `eu-central-1` (lub inny)
+- `instance_type`: `t4g.small` (domyślnie)
+- `platform_name`: `omnia-platform` (domyślnie)
+- `auto_approve`: `false` (wymagane potwierdzenie apply)
+
+**Co się stanie:**
+- ✅ Terraform tworzy VPC, Subnet, Security Group, EC2
+- ✅ Dynamiczny failover AZ - jeśli brakuje capacity, próbuje następną
+- ✅ Automatyczne ustawienie GitHub Variables z Terraform outputs
+- ✅ Gotowe do użytku!
+
+### 3. Uruchom workflow "Uruchom Platform"
+
+GitHub -> Actions -> "Uruchom Platform" -> Run workflow
+
+**Co się stanie:**
+- ✅ Instancja EC2 startuje
+- ✅ Ansible przez SSM wdrażana aplikacje z `apps.json`
+- ✅ Cloudflare tunnels tworzą publiczne URL-e
+
+### 4. Gotowe!
+
+Sprawdź podsumowanie workflow - tam są linki do aplikacji (https://*.trycloudflare.com).
+
+### 5. Zatrzymanie (oszczędność kosztów)
+
+GitHub -> Actions -> "Zatrzymaj Platform" -> Run workflow
+
+Wpisz `stop` aby potwierdzić.
+
+**Co się stanie:**
+- ✅ Instancja zatrzymana (rachunki zamrożone)
+- ✅ Dane zachowane - uruchomienie zajmie ~3-5 minut
+- ✅ Tunele Cloudflare zamknięte
+
+### 6. Zniszczenie infrastruktury (końcowe)
+
+GitHub -> Actions -> "Zniszcz Infrastrukturę" -> Run workflow
+
+Wpisz `destroy` aby potwierdzić.
+
+**OSTRZEŻENIE: Ta operacja jest nieodwracalna!**
+- ✅ Wszystkie zasoby AWS usunięte
+- ✅ EBS volumes usunięte
+- ⚠️ Brak kopii zapasowych
+
+---
+
+## AZ Failover (automatyczny)
+
+Terraform automatycznie:
+1. Pobiera wszystkie dostępne AZ w regionie
+2. Sprawdza, które AZ mają dostępny `t4g.small`
+3. Zaczyna od preferowanej AZ (`preferred_az_index`)
+4. Jeśli brakuje capacity - przechodzi do następnej AZ
+5. Jeśli żadna AZ nie ma pojemności - wyrzuca błąd z komunikatem
+
+**Poprzednio:** Trzeba było ręcznie zmieniać `preferred_az_index` w tfvars.
+
+**Teraz:** Automatycznie próbuje kolejne AZ!
+
+---
+
+## Workflow'i GitHub Actions
+
+| Workflow | Opis | Czyści koszty |
+|----------|------|---|
+| **Utwórz Infrastrukturę** | Terraform apply: VPC + EC2 + sieci | ❌ Nie (EC2 startuje) |
+| **Uruchom Platform** | Ansible: Docker + aplikacje + Cloudflare | ❌ Nie |
+| **Zatrzymaj Platform** | Stop EC2 (oszczędza rachunki) | ✅ Tak |
+| **Zniszcz Infrastrukturę** | Terraform destroy (nieodwracalne!) | ✅ Tak |
+
+---
 
 Kazda aplikacja ma wlasny podkatalog z Dockerfile i docker-compose:
 

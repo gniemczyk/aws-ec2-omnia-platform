@@ -52,14 +52,30 @@ data "aws_availability_zones" "available" {
   }
 }
 
-# Najnowszy obraz Ubuntu 24.04 LTS dla architektury ARM64 (Graviton)
-data "aws_ami" "ubuntu_arm64" {
+# Sprawdzenie dostepnosci typu instancji w kazdej strefie AZ
+# Filtuje strefy, gdzie t4g.small jest dostepny
+data "aws_ec2_instance_type_offerings" "available" {
+  filter {
+    name   = "instance-type"
+    values = [var.instance_type]
+  }
+
+  filter {
+    name   = "location"
+    values = data.aws_availability_zones.available.names
+  }
+
+  location_type = "availability-zone"
+}
+
+# Najnowszy obraz Debian dla architektury ARM64 (Graviton)
+data "aws_ami" "debian_arm64" {
   most_recent = true
-  owners      = ["099720109477"] # Canonical
+  owners      = ["136693071363"] # Debian
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*"]
+    values = ["debian-13-arm64-*"]
   }
 
   filter {
@@ -84,11 +100,37 @@ locals {
   # Lista dostepnych stref AZ w regionie
   available_azs = data.aws_availability_zones.available.names
 
-  # Wybranie preferowanej strefy AZ z automatycznym failoverem
-  # Jesli preferowany indeks jest poza zakresem, bierze pierwsza dostepna
-  selected_az = local.available_azs[
-    min(var.preferred_az_index, length(local.available_azs) - 1)
+  # Lista stref AZ gdzie dostepny jest t4g.small
+  azs_with_instance_type = distinct([
+    for offering in data.aws_ec2_instance_type_offerings.available.instance_type_offerings :
+    offering.location
+  ])
+
+  # Sortowanie AZ z preferencja na preferred_az_index
+  # 1. Branie pierwsze dostepne AZ ze wskazanym indeksem
+  # 2. Jesli indeks poza zakresem, branie pierwsze dostepne
+  # 3. Jesli prefererowana AZ niedostepna, przechodzenie do nastepnych
+  preferred_az_candidates = [
+    for idx in range(length(local.available_azs)) :
+    local.available_azs[
+      (var.preferred_az_index + idx) % length(local.available_azs)
+    ]
+    if contains(local.azs_with_instance_type, local.available_azs[
+      (var.preferred_az_index + idx) % length(local.available_azs)
+    ])
   ]
+
+  # Wybrana strefa AZ - pierwsza dostepna z preferowanym failoverem
+  selected_az = length(local.preferred_az_candidates) > 0 ? local.preferred_az_candidates[0] : (
+    length(local.azs_with_instance_type) > 0 ? local.azs_with_instance_type[0] : null
+  )
+
+  # Walidacja: jesli zadna AZ nie ma pojemnosci - blad z dobrym komunikatem
+  validation_error = (
+    local.selected_az == null ?
+    "BLAD: Typ instancji ${var.instance_type} niedostepny w zadnej strefie AZ regionu ${var.aws_region}. Dostepne AZ: ${join(", ", local.available_azs)}, ale zadna nie ma pojemnosci dla tego typu. Sprobuj inny typ instancji lub zmien region."
+    : ""
+  )
 
   # Prefiks nazw zasobow
   name_prefix = var.project_name
@@ -276,11 +318,11 @@ resource "aws_security_group" "platform_instance" {
 
   # Caly ruch wychodzacy (Docker pull, apt, cloudflared)
   egress {
-    description      = "Caly ruch wychodzacy IPv4"
-    from_port        = 0
-    to_port          = 0
-    protocol         = "-1"
-    cidr_blocks      = ["0.0.0.0/0"]
+    description = "Caly ruch wychodzacy IPv4"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
@@ -341,7 +383,7 @@ resource "aws_iam_instance_profile" "platform_instance" {
 # =============================================================================
 
 resource "aws_instance" "platform" {
-  ami                    = data.aws_ami.ubuntu_arm64.id
+  ami                    = data.aws_ami.debian_arm64.id
   instance_type          = var.instance_type
   subnet_id              = aws_subnet.platform.id
   iam_instance_profile   = aws_iam_instance_profile.platform_instance.name
@@ -363,7 +405,7 @@ resource "aws_instance" "platform" {
   user_data = base64encode(<<-EOF
     #!/bin/bash
     set -e
-    # Agent SSM jest preinstalowany na Ubuntu 24.04 - upewniamy sie ze dziala
+    # Agent SSM jest preinstalowany na Debian - upewniamy sie ze dziala
     systemctl enable amazon-ssm-agent
     systemctl start amazon-ssm-agent
     echo "SSM_READY" > /tmp/instance-ready
@@ -378,6 +420,12 @@ resource "aws_instance" "platform" {
 
   tags = {
     Name = "${local.name_prefix}-instance"
+  }
+
+  # Walidacja: jesli zadna AZ nie ma pojemnosci - rzuci blad z jasnym komunikatem
+  precondition {
+    condition     = local.selected_az != null
+    error_message = local.validation_error
   }
 
   lifecycle {

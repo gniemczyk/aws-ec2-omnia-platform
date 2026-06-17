@@ -29,5 +29,5 @@ all:
       # Sciezka do pluginu Session Manager
       ansible_aws_ssm_plugin: "{{ lookup('env', 'SSM_PLUGIN_PATH') | default('/usr/local/sessionmanagerplugin/bin/session-manager-plugin', true) }}"
 
-      # Interpreter Python na Ubuntu 24.04
+      # Interpreter Python na Debian
       ansible_python_interpreter: /usr/bin/python3

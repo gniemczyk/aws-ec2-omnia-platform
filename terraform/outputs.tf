@@ -2,6 +2,34 @@
 # Wyjscia Terraform - Uzywane przez GitHub Actions i Ansible
 # =============================================================================
 
+output "available_azs_all" {
+  description = "Wszystkie dostepne strefy AZ w regionie"
+  value       = data.aws_availability_zones.available.names
+}
+
+output "azs_with_instance_type" {
+  description = "Strefy AZ gdzie dostepny jest typ instancji (z dynamicznym failoverem)"
+  value = distinct([
+    for offering in data.aws_ec2_instance_type_offerings.available.instance_type_offerings :
+    offering.location
+  ])
+}
+
+output "selected_az_failover_info" {
+  description = "Informacja o wyborze AZ - czy to byla preferowana czy failover"
+  value = (
+    contains(
+      distinct([
+        for offering in data.aws_ec2_instance_type_offerings.available.instance_type_offerings :
+        offering.location
+      ]),
+      data.aws_availability_zones.available.names[var.preferred_az_index]
+    ) ?
+    "AZ '${aws_instance.platform.availability_zone}' - preferowana (indeks ${var.preferred_az_index})"
+    : "AZ '${aws_instance.platform.availability_zone}' - failover (preferowana niedostepna, uzyta pierwsza dostepna)"
+  )
+}
+
 output "instance_id" {
   description = "ID instancji EC2 (uzywane przez workflow start/stop oraz Ansible SSM)"
   value       = aws_instance.platform.id
@@ -38,8 +66,8 @@ output "instance_ipv6" {
 }
 
 output "ami_id" {
-  description = "ID obrazu AMI uzywanego przez instancje"
-  value       = data.aws_ami.ubuntu_arm64.id
+  description = "ID obrazu AMI (Debian ARM64) uzywanego przez instancje"
+  value       = data.aws_ami.debian_arm64.id
 }
 
 output "region" {

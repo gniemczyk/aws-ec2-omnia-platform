@@ -1,0 +1,219 @@
+# =============================================================================
+# TWORZENIE INFRASTRUKTURY - Omnia Platform
+# =============================================================================
+# Automatyczne tworzenie EC2 + VPC + sieci przez Terraform.
+# Wyzwalane recznie przez workflow_dispatch.
+# Automatycznie ustawia GitHub Variables i Secrets z Terraform outputs.
+# Wszystkie wartosci z GitHub Variables/Secrets - BRAK hardcode.
+# =============================================================================
+
+name: "Utwórz Infrastrukturę"
+
+on:
+  workflow_dispatch:
+    inputs:
+      aws_region:
+        description: "Region AWS (np. eu-central-1)"
+        required: true
+        type: string
+        default: "eu-central-1"
+      instance_type:
+        description: "Typ instancji EC2 (np. t4g.small)"
+        required: false
+        type: string
+        default: "t4g.small"
+      platform_name:
+        description: "Nazwa platformy (prefiks zasobów)"
+        required: false
+        type: string
+        default: "omnia-platform"
+      auto_approve:
+        description: "Czy automatycznie zaakceptować terraform apply?"
+        required: false
+        type: boolean
+        default: false
+
+# Wymagane uprawnienia do uwierzytelniania AWS OIDC i edycji GitHub Variables
+permissions:
+  id-token: write
+  contents: write
+  repository-projects: write
+
+env:
+  AWS_REGION: ${{ github.event.inputs.aws_region || 'eu-central-1' }}
+  PLATFORM_NAME: ${{ github.event.inputs.platform_name || 'omnia-platform' }}
+
+jobs:
+  create-infrastructure:
+    name: "Tworzenie infrastruktury Terraform"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      instance_id: ${{ steps.terraform-output.outputs.instance_id }}
+      vpc_id: ${{ steps.terraform-output.outputs.vpc_id }}
+      security_group_id: ${{ steps.terraform-output.outputs.security_group_id }}
+      availability_zone: ${{ steps.terraform-output.outputs.availability_zone }}
+      iam_role_arn: ${{ steps.terraform-output.outputs.iam_role_arn }}
+
+    steps:
+      # =====================================================================
+      # KROK 1: Pobranie repozytorium
+      # =====================================================================
+      - name: Pobranie repozytorium
+        uses: actions/checkout@v4
+
+      # =====================================================================
+      # KROK 2: Instalacja Terraform
+      # =====================================================================
+      - name: Instalacja Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ">= 1.5.0"
+
+      # =====================================================================
+      # KROK 3: Uwierzytelnianie do AWS przez OIDC
+      # =====================================================================
+      - name: Konfiguracja poswiadczen AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-create-infrastructure
+
+      # =====================================================================
+      # KROK 4: Terraform init
+      # =====================================================================
+      - name: Terraform init
+        working-directory: terraform
+        run: |
+          terraform init -no-color
+
+      # =====================================================================
+      # KROK 5: Terraform validate
+      # =====================================================================
+      - name: Terraform validate
+        working-directory: terraform
+        run: |
+          terraform validate -no-color
+
+      # =====================================================================
+      # KROK 6: Terraform plan
+      # =====================================================================
+      - name: Terraform plan
+        id: plan
+        working-directory: terraform
+        run: |
+          terraform plan \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="instance_type=${{ github.event.inputs.instance_type || 't4g.small' }}" \
+            -var="project_name=${{ env.PLATFORM_NAME }}" \
+            -no-color \
+            -out=tfplan
+
+      # =====================================================================
+      # KROK 7: Terraform apply (manual approval lub auto)
+      # =====================================================================
+      - name: Terraform apply
+        id: apply
+        working-directory: terraform
+        run: |
+          if [ "${{ github.event.inputs.auto_approve }}" == "true" ]; then
+            echo "Auto-approve wlaczony - aplikowanie bez pytania"
+            terraform apply -no-color -auto-approve tfplan
+          else
+            echo "::warning::Czekanie na manualną akceptację workflow"
+            terraform apply -no-color tfplan
+          fi
+
+      # =====================================================================
+      # KROK 8: Pobranie outputow Terraform
+      # =====================================================================
+      - name: Pobranie Terraform outputow
+        id: terraform-output
+        working-directory: terraform
+        run: |
+          INSTANCE_ID=$(terraform output -raw instance_id)
+          VPC_ID=$(terraform output -raw vpc_id)
+          SG_ID=$(terraform output -raw security_group_id)
+          AZ=$(terraform output -raw availability_zone)
+          IAM_ROLE=$(terraform output -raw iam_role_arn)
+
+          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+          echo "vpc_id=$VPC_ID" >> $GITHUB_OUTPUT
+          echo "security_group_id=$SG_ID" >> $GITHUB_OUTPUT
+          echo "availability_zone=$AZ" >> $GITHUB_OUTPUT
+          echo "iam_role_arn=$IAM_ROLE" >> $GITHUB_OUTPUT
+
+          echo "=== Terraform Outputs ===" 
+          echo "Instance ID: $INSTANCE_ID"
+          echo "VPC ID: $VPC_ID"
+          echo "Security Group: $SG_ID"
+          echo "Availability Zone: $AZ"
+          echo "IAM Role: $IAM_ROLE"
+
+      # =====================================================================
+      # KROK 9: Ustawienie GitHub Variables (przez CLI)
+      # =====================================================================
+      - name: Instalacja GitHub CLI
+        uses: cli/setup-gh-cli@v1
+
+      - name: Ustawienie GitHub Variables
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INSTANCE_ID: ${{ steps.terraform-output.outputs.instance_id }}
+          AZ: ${{ steps.terraform-output.outputs.availability_zone }}
+        run: |
+          REPO="${{ github.repository }}"
+
+          echo "Ustawianie GitHub Variables..."
+
+          gh variable set EC2_INSTANCE_ID --body "$INSTANCE_ID" -R "$REPO" || {
+            echo "::error::Nie udalo sie ustawic EC2_INSTANCE_ID"
+            exit 1
+          }
+
+          gh variable set AWS_REGION --body "${{ env.AWS_REGION }}" -R "$REPO" || {
+            echo "::error::Nie udalo sie ustawic AWS_REGION"
+            exit 1
+          }
+
+          gh variable set PLATFORM_NAME --body "${{ env.PLATFORM_NAME }}" -R "$REPO" || {
+            echo "::error::Nie udalo sie ustawic PLATFORM_NAME"
+            exit 1
+          }
+
+          echo "✅ GitHub Variables ustawione pomyslnie"
+
+      # =====================================================================
+      # KROK 10: Podsumowanie
+      # =====================================================================
+       - name: Publikacja podsumowania
+        if: always()
+        run: |
+          echo "## ✅ Infrastruktura gotowa" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Wlasciwosc | Wartosc |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Instance ID | \`${{ steps.terraform-output.outputs.instance_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Region | \`${{ env.AWS_REGION }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| AZ | \`${{ steps.terraform-output.outputs.availability_zone }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| VPC | \`${{ steps.terraform-output.outputs.vpc_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Group | \`${{ steps.terraform-output.outputs.security_group_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔐 Polaczenie przez SSM - KOPIUJ/WKLEJ (gdy instancja startuje)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "aws ssm start-session --target ${{ steps.terraform-output.outputs.instance_id }} --region ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "### Nastepne kroki:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Sprawdz GitHub Variables - zostaly ustawione automatycznie" >> $GITHUB_STEP_SUMMARY
+          echo "2. Uruchom workflow **'Uruchom Platform'** (rozpocznie EC2 i wdrozy aplikacje)" >> $GITHUB_STEP_SUMMARY
+          echo "3. W workflow 'Uruchom Platform' znajdziesz:" >> $GITHUB_STEP_SUMMARY
+          echo "   - Polecenie SSM do dostępu do instancji" >> $GITHUB_STEP_SUMMARY
+          echo "   - Linki do aplikacji (Grafana, API, itd.)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> 💡 **Pamietaj:** Infrastruktura teraz istnieje w AWS. Koszty sie naliczaja." >> $GITHUB_STEP_SUMMARY
+          echo "> Aby zaoszczedzic, zatrzymaj EC2 workflow 'Zatrzymaj Platform' lub usun cala infrastrukture 'Zniszcz Infrastrukture'" >> $GITHUB_STEP_SUMMARY

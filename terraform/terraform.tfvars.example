@@ -1,8 +1,15 @@
 # =============================================================================
 # Przykladowe zmienne Terraform - Omnia Platform
 # =============================================================================
-# Skopiuj do terraform.tfvars i dostosuj:
+# UWAGA: Plik dla MANUALNEGO uzycia lokalnego (opcjonalnie).
+# 
+# Standardowo wszystkie zmienne sa przekazywane z GitHub Actions:
+#   GitHub -> Actions -> "Utwórz Infrastrukturę" -> Run workflow
+# 
+# Zmienna TYLKO jesli chcesz lokalnie:
 #   cp terraform.tfvars.example terraform.tfvars
+#   terraform init
+#   terraform apply -var="aws_region=eu-central-1"
 # =============================================================================
 
 # Region AWS - jedyna wymagana zmienna bez wartosci domyslnej

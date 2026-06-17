@@ -1,0 +1,125 @@
+# =============================================================================
+# ZNISZCZENIE INFRASTRUKTURY - Omnia Platform
+# =============================================================================
+# Automatyczne usunięcie EC2 + VPC + wszystkich zasobów.
+# Wyzwalane recznie przez workflow_dispatch.
+# OSTRZEZENIE: Ta operacja jest nieodwracalna!
+# =============================================================================
+
+name: "Zniszcz Infrastrukturę"
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Wpisz 'destroy' aby potwierdzic usunięcie WSZYSTKICH zasobów"
+        required: true
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+jobs:
+  destroy-infrastructure:
+    name: "Zniszczenie infrastruktury Terraform"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # =====================================================================
+      # KROK 1: Walidacja potwierdzenia
+      # =====================================================================
+      - name: Walidacja potwierdzenia
+        if: github.event.inputs.confirm != 'destroy'
+        run: |
+          echo "::error::Wymagane potwierdzenie. Wpisz 'destroy' aby kontynuowac."
+          exit 1
+
+      # =====================================================================
+      # KROK 2: Ostrzezenie
+      # =====================================================================
+      - name: Ostrzezenie
+        run: |
+          echo "::warning::OSTRZEZENIE: Za 10 sekund zostanie uruchomiona operacja niszczenia!"
+          echo "::warning::Wszystkie zasoby AWS (EC2, VPC, sieci, storage) zostan usuniete!"
+          sleep 10
+
+      # =====================================================================
+      # KROK 3: Pobranie repozytorium
+      # =====================================================================
+      - name: Pobranie repozytorium
+        uses: actions/checkout@v4
+
+      # =====================================================================
+      # KROK 4: Instalacja Terraform
+      # =====================================================================
+      - name: Instalacja Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ">= 1.5.0"
+
+      # =====================================================================
+      # KROK 5: Uwierzytelnianie do AWS przez OIDC
+      # =====================================================================
+      - name: Konfiguracja poswiadczen AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-destroy-infrastructure
+
+      # =====================================================================
+      # KROK 6: Terraform init
+      # =====================================================================
+      - name: Terraform init
+        working-directory: terraform
+        run: |
+          terraform init -no-color
+
+      # =====================================================================
+      # KROK 7: Terraform destroy
+      # =====================================================================
+      - name: Terraform destroy
+        working-directory: terraform
+        run: |
+          terraform destroy \
+            -no-color \
+            -auto-approve
+
+      # =====================================================================
+      # KROK 8: Czyszczenie GitHub Variables (opcjonalnie)
+      # =====================================================================
+      - name: Czyszczenie GitHub Variables
+        run: |
+          echo "::notice::GitHub Variables nie zostaly automatycznie usuniete."
+          echo "::notice::Mozesz je manualnie usunac w Settings > Variables and secrets > Actions"
+
+      # =====================================================================
+      # KROK 9: Podsumowanie
+      # =====================================================================
+      - name: Publikacja potwierdzenia zniszczenia
+        if: always()
+        run: |
+          echo "## ⚠️ Infrastruktura zniszczona" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | Wartosc |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Akcja | Usunięcie infrastruktury |" >> $GITHUB_STEP_SUMMARY
+          echo "| Region | \`${{ env.AWS_REGION }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Wykonal | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Czas | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Co zostalo usunięte:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Instancja EC2" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ VPC i Subnety" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Security Groups" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ IAM Role i Instance Profile" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ VPC Endpoints" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ EBS Volumes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> 💡 **GitHub Variables trzeba usunac manualnie** w Settings > Variables and secrets > Actions" >> $GITHUB_STEP_SUMMARY

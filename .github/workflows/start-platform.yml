@@ -37,6 +37,35 @@ jobs:
 
     steps:
       # =====================================================================
+      # KROK 0: Walidacja wymaganych GitHub Variables
+      # =====================================================================
+      - name: Walidacja GitHub Variables
+        run: |
+          ERRORS=0
+          
+          if [ -z "${{ env.AWS_REGION }}" ]; then
+            echo "::error::Brakuje GitHub Variable: AWS_REGION"
+            ERRORS=$((ERRORS+1))
+          fi
+          
+          if [ -z "${{ env.EC2_INSTANCE_ID }}" ]; then
+            echo "::error::Brakuje GitHub Variable: EC2_INSTANCE_ID"
+            echo "::notice::Uruchom workflow 'Utwórz Infrastrukturę' aby je ustawic"
+            ERRORS=$((ERRORS+1))
+          fi
+          
+          if [ -z "${{ env.AWS_ROLE_ARN }}" ]; then
+            echo "::error::Brakuje GitHub Secret: AWS_ROLE_ARN"
+            ERRORS=$((ERRORS+1))
+          fi
+          
+          if [ $ERRORS -gt 0 ]; then
+            echo "::error::Brakuje $ERRORS wymaganych wartosci!"
+            exit 1
+          fi
+          
+          echo "✅ Wszystkie wymagane Variables sa ustawione"
+      # =====================================================================
       # KROK 1: Pobranie repozytorium (dla apps.json i katalogu app/)
       # =====================================================================
       - name: Pobranie repozytorium
@@ -176,17 +205,39 @@ jobs:
           echo "$REPORT" >> $GITHUB_STEP_SUMMARY
 
       # =====================================================================
-      # KROK 9: Publikacja podsumowania
+      # KROK 9: Publikacja podsumowania z gotowymi poleceniami
       # =====================================================================
       - name: Publikacja statusu platformy
         if: always()
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "### Metadane platformy" >> $GITHUB_STEP_SUMMARY
-          echo "- **Instance ID:** \`$EC2_INSTANCE_ID\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Region:** \`$AWS_REGION\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Uruchomil:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Run:** [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 Informacje o instancji" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> **Pamietaj o zatrzymaniu platformy!** Uruchom workflow 'Zatrzymaj Platform'." >> $GITHUB_STEP_SUMMARY
+          echo "| Wlasciwosc | Wartosc |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Instance ID | \`$EC2_INSTANCE_ID\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Region | \`$AWS_REGION\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Uruchomil | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔐 Polaczenie SSH/SSM - KOPIUJ/WKLEJ" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Polaczenie przez AWS Session Manager (bez SSH, bez kluczy):" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "aws ssm start-session --target $EC2_INSTANCE_ID --region $AWS_REGION" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Wymagane:**" >> $GITHUB_STEP_SUMMARY
+          echo "- AWS CLI zainstalowane: \`brew install awscli\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Session Manager Plugin: \`brew install --cask session-manager-plugin\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Skonfigurowane AWS credentials (lub uzycie AWS_PROFILE)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## 🌐 Aplikacje - KOPIUJ/WKLEJ Link" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Linki sa dostepne w sekcji powyzej: **Aktywne uslugi**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "> ⏰ **Pamietaj o zatrzymaniu platformy!** Uruchom workflow 'Zatrzymaj Platform' aby zaoszczedzic koszty." >> $GITHUB_STEP_SUMMARY
