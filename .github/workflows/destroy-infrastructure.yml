@@ -75,12 +75,16 @@ jobs:
           role-session-name: github-actions-destroy-infrastructure
 
       # =====================================================================
-      # KROK 6: Terraform destroy (bez backendu - backend może być po staremu)
+      # KROK 6: Terraform destroy
       # =====================================================================
       - name: Terraform destroy
         working-directory: terraform
         run: |
-          terraform init -no-color -backend=false
+          terraform init -no-color \
+            -backend-config="bucket=${{ env.PLATFORM_NAME }}-tfstate" \
+            -backend-config="key=terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.PLATFORM_NAME }}-tflock"
           
           terraform destroy \
             -var="aws_region=${{ env.AWS_REGION }}" \
@@ -96,59 +100,12 @@ jobs:
         run: |
           echo "Usuwanie parametrow SSM Parameter Store..."
           
-          aws ssm delete-parameter --name "/omnia/EC2_INSTANCE_ID" --region us-east-1 2>/dev/null || echo "Parameter /omnia/EC2_INSTANCE_ID nie istnieje"
-          aws ssm delete-parameter --name "/omnia/AWS_REGION" --region us-east-1 2>/dev/null || echo "Parameter /omnia/AWS_REGION nie istnieje"
-          aws ssm delete-parameter --name "/omnia/PLATFORM_NAME" --region us-east-1 2>/dev/null || echo "Parameter /omnia/PLATFORM_NAME nie istnieje"
-          aws ssm delete-parameter --name "/omnia/PLATFORM_BASE_DIR" --region us-east-1 2>/dev/null || echo "Parameter /omnia/PLATFORM_BASE_DIR nie istnieje"
+          aws ssm delete-parameter --name "/omnia/EC2_INSTANCE_ID" --region us-east-1 2>/dev/null || echo "Parameter nie istnieje"
+          aws ssm delete-parameter --name "/omnia/AWS_REGION" --region us-east-1 2>/dev/null || echo "Parameter nie istnieje"
+          aws ssm delete-parameter --name "/omnia/PLATFORM_NAME" --region us-east-1 2>/dev/null || echo "Parameter nie istnieje"
+          aws ssm delete-parameter --name "/omnia/PLATFORM_BASE_DIR" --region us-east-1 2>/dev/null || echo "Parameter nie istnieje"
           
           echo "✅ Parametry SSM skasowane"
-
-      # =====================================================================
-      # KROK 8: Cleanup Backend - czyść OBIE nazwy (starą + nową)
-      # =====================================================================
-      - name: Cleanup Backend - czyść S3 + DynamoDB
-        run: |
-          # Nowe nazwy (po refactoringu)
-          NEW_BUCKET="${{ env.PLATFORM_NAME }}-tfstate"
-          NEW_TABLE="${{ env.PLATFORM_NAME }}-tflock"
-          
-          # Stare nazwy (przed refactoringiem)
-          OLD_BUCKET="${{ env.PLATFORM_NAME }}-tf-state-${{ github.repository_owner }}"
-          OLD_TABLE="${{ env.PLATFORM_NAME }}-tf-locks"
-          
-          echo "Czyszczenie S3 i DynamoDB..."
-          
-          # Czyść nowe zasoby
-          for BUCKET in "$NEW_BUCKET" "$OLD_BUCKET"; do
-            echo "Czyszczenie bucketu: $BUCKET"
-            aws s3api list-object-versions --bucket "$BUCKET" --region ${{ env.AWS_REGION }} \
-              --query 'Versions[*].[Key,VersionId]' --output text 2>/dev/null | \
-              while read key versionid; do
-                if [ ! -z "$key" ]; then
-                  aws s3api delete-object --bucket "$BUCKET" --key "$key" --version-id "$versionid" --region ${{ env.AWS_REGION }} 2>/dev/null || true
-                fi
-              done
-            
-            # Usuń delete markers
-            aws s3api list-object-versions --bucket "$BUCKET" --region ${{ env.AWS_REGION }} \
-              --query 'DeleteMarkers[*].[Key,VersionId]' --output text 2>/dev/null | \
-              while read key versionid; do
-                if [ ! -z "$key" ]; then
-                  aws s3api delete-object --bucket "$BUCKET" --key "$key" --version-id "$versionid" --region ${{ env.AWS_REGION }} 2>/dev/null || true
-                fi
-              done
-            
-            # Usuń bucket
-            aws s3 rb "s3://$BUCKET" --force --region ${{ env.AWS_REGION }} 2>/dev/null || echo "  Bucket $BUCKET juz usuniety"
-          done
-          
-          # Czyść obie tabele DynamoDB
-          for TABLE in "$NEW_TABLE" "$OLD_TABLE"; do
-            echo "Czyszczenie tabeli DynamoDB: $TABLE"
-            aws dynamodb delete-table --table-name "$TABLE" --region ${{ env.AWS_REGION }} 2>/dev/null || echo "  Tabela $TABLE juz usunieta"
-          done
-          
-          echo "✅ Backend cleanup kompletny (obie nazwy)"
 
       # =====================================================================
       # KROK 9: Czyszczenie GitHub Variables (opcjonalnie)
