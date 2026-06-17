@@ -23,6 +23,7 @@ permissions:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
+  PLATFORM_NAME: ${{ vars.PLATFORM_NAME }}
 
 jobs:
   destroy-infrastructure:
@@ -84,7 +85,21 @@ jobs:
             -auto-approve
 
       # =====================================================================
-      # KROK 7: Cleanup Backend (S3 + DynamoDB)
+      # KROK 7: Usunięcie parametrow SSM
+      # =====================================================================
+      - name: Usunięcie parametrow SSM
+        run: |
+          echo "Usuwanie parametrow SSM Parameter Store..."
+          
+          aws ssm delete-parameter --name "/omnia/EC2_INSTANCE_ID" --region us-east-1 2>/dev/null || echo "Parameter /omnia/EC2_INSTANCE_ID nie istnieje"
+          aws ssm delete-parameter --name "/omnia/AWS_REGION" --region us-east-1 2>/dev/null || echo "Parameter /omnia/AWS_REGION nie istnieje"
+          aws ssm delete-parameter --name "/omnia/PLATFORM_NAME" --region us-east-1 2>/dev/null || echo "Parameter /omnia/PLATFORM_NAME nie istnieje"
+          aws ssm delete-parameter --name "/omnia/PLATFORM_BASE_DIR" --region us-east-1 2>/dev/null || echo "Parameter /omnia/PLATFORM_BASE_DIR nie istnieje"
+          
+          echo "✅ Parametry SSM skasowane"
+
+      # =====================================================================
+      # KROK 8: Cleanup Backend (S3 + DynamoDB)
       # =====================================================================
       - name: Cleanup Backend
         env:
@@ -100,7 +115,7 @@ jobs:
           aws s3 rb "s3://$BUCKET_NAME" --force || true
 
       # =====================================================================
-      # KROK 8: Czyszczenie GitHub Variables (opcjonalnie)
+      # KROK 9: Czyszczenie GitHub Variables (opcjonalnie)
       # =====================================================================
       - name: Czyszczenie GitHub Variables
         run: |
@@ -108,7 +123,7 @@ jobs:
           echo "::notice::Mozesz je manualnie usunac w Settings > Variables and secrets > Actions"
 
       # =====================================================================
-      # KROK 9: Podsumowanie
+      # KROK 10: Podsumowanie
       # =====================================================================
       - name: Publikacja potwierdzenia zniszczenia
         if: always()
@@ -129,5 +144,6 @@ jobs:
           echo "- ✅ IAM Role i Instance Profile" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ VPC Endpoints" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ EBS Volumes" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ SSM Parameters" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "> 💡 **GitHub Variables trzeba usunac manualnie** w Settings > Variables and secrets > Actions" >> $GITHUB_STEP_SUMMARY

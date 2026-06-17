@@ -2,7 +2,7 @@
 # ZATRZYMANIE PLATFORMY - Omnia Platform
 # =============================================================================
 # Wyzwalane recznie przez workflow_dispatch.
-# Wszystkie wartosci pochodza z GitHub Variables/Secrets - BRAK hardcode.
+# Wszystkie wartosci pochodza z AWS SSM Parameter Store/Secrets - BRAK hardcode.
 # Natychmiast zatrzymuje instancje EC2 i zamraza koszty obliczeniowe.
 # =============================================================================
 
@@ -25,10 +25,8 @@ permissions:
   id-token: write
   contents: read
 
-# Wszystkie wartosci z GitHub Variables i Secrets - zero hardcode
+# Wszystkie wartosci z AWS SSM Parameter Store i Secrets - zero hardcode
 env:
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
   AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
 
 jobs:
@@ -39,34 +37,48 @@ jobs:
 
     steps:
       # =====================================================================
-      # KROK 0: Walidacja GitHub Variables
+      # KROK 0: Konfiguracja AWS i pobranie parametrow z SSM
       # =====================================================================
-      - name: Walidacja GitHub Variables
+      - name: Konfiguracja poswiadczen AWS (OIDC) - wstepnie
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: github-actions-stop-fetch-params
+
+      - name: Pobranie parametrow z SSM
+        id: ssm-params
         run: |
-          ERRORS=0
+          # Pobierz parametry z SSM
+          EC2_INSTANCE_ID=$(aws ssm get-parameter --name "/omnia/EC2_INSTANCE_ID" --region us-east-1 --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          AWS_REGION=$(aws ssm get-parameter --name "/omnia/AWS_REGION" --region us-east-1 --query 'Parameter.Value' --output text 2>/dev/null || echo "")
           
-          if [ -z "${{ env.AWS_REGION }}" ]; then
-            echo "::error::Brakuje GitHub Variable: AWS_REGION"
-            ERRORS=$((ERRORS+1))
-          fi
-          
-          if [ -z "${{ env.EC2_INSTANCE_ID }}" ]; then
-            echo "::error::Brakuje GitHub Variable: EC2_INSTANCE_ID"
+          # Walidacja pobranych parametrow
+          if [ -z "$EC2_INSTANCE_ID" ] || [ "$EC2_INSTANCE_ID" == "None" ]; then
+            echo "::error::Brakuje parametru SSM: /omnia/EC2_INSTANCE_ID"
             echo "::notice::Uruchom workflow 'Utwórz Infrastrukturę' aby je ustawic"
-            ERRORS=$((ERRORS+1))
-          fi
-          
-          if [ -z "${{ env.AWS_ROLE_ARN }}" ]; then
-            echo "::error::Brakuje GitHub Secret: AWS_ROLE_ARN"
-            ERRORS=$((ERRORS+1))
-          fi
-          
-          if [ $ERRORS -gt 0 ]; then
-            echo "::error::Brakuje $ERRORS wymaganych wartosci!"
             exit 1
           fi
           
-          echo "✅ Wszystkie wymagane Variables sa ustawione"
+          if [ -z "$AWS_REGION" ] || [ "$AWS_REGION" == "None" ]; then
+            echo "::error::Brakuje parametru SSM: /omnia/AWS_REGION"
+            exit 1
+          fi
+          
+          # Ustawienie output variables
+          echo "ec2_instance_id=$EC2_INSTANCE_ID" >> $GITHUB_OUTPUT
+          echo "aws_region=$AWS_REGION" >> $GITHUB_OUTPUT
+          
+          echo "✅ Parametry pobrane z SSM Parameter Store"
+          echo "Instance ID: $EC2_INSTANCE_ID"
+          echo "Region: $AWS_REGION"
+
+      - name: Konfiguracja poswiadczen AWS (OIDC) - EC2
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ steps.ssm-params.outputs.aws_region }}
+          role-session-name: github-actions-stop-platform
 
       # =====================================================================
       # KROK 1: Walidacja potwierdzenia
@@ -78,25 +90,18 @@ jobs:
           exit 1
 
       # =====================================================================
-      # KROK 2: Uwierzytelnianie do AWS przez OIDC
-      # =====================================================================
-      - name: Konfiguracja poswiadczen AWS (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: github-actions-stop-platform
-
-      # =====================================================================
-      # KROK 3: Zatrzymanie instancji EC2
+      # KROK 2: Zatrzymanie instancji EC2
       # =====================================================================
       - name: Zatrzymanie instancji EC2
         id: stop-ec2
         run: |
+          EC2_INSTANCE_ID="${{ steps.ssm-params.outputs.ec2_instance_id }}"
+          AWS_REGION="${{ steps.ssm-params.outputs.aws_region }}"
           echo "Zatrzymywanie instancji: $EC2_INSTANCE_ID"
 
           STATE=$(aws ec2 describe-instances \
             --instance-ids "$EC2_INSTANCE_ID" \
+            --region "$AWS_REGION" \
             --query 'Reservations[0].Instances[0].State.Name' \
             --output text)
 
@@ -106,31 +111,36 @@ jobs:
             echo "Instancja juz zatrzymana - brak dzialan"
             echo "already_stopped=true" >> $GITHUB_OUTPUT
           elif [ "$STATE" == "running" ]; then
-            aws ec2 stop-instances --instance-ids "$EC2_INSTANCE_ID"
+            aws ec2 stop-instances --instance-ids "$EC2_INSTANCE_ID" --region "$AWS_REGION"
             echo "Komenda zatrzymania wyslana"
             echo "already_stopped=false" >> $GITHUB_OUTPUT
           else
             echo "::warning::Instancja w stanie '$STATE' - proba zatrzymania"
-            aws ec2 stop-instances --instance-ids "$EC2_INSTANCE_ID" --force || true
+            aws ec2 stop-instances --instance-ids "$EC2_INSTANCE_ID" --region "$AWS_REGION" --force || true
             echo "already_stopped=false" >> $GITHUB_OUTPUT
           fi
 
       # =====================================================================
-      # KROK 4: Oczekiwanie na zatrzymanie instancji
+      # KROK 3: Oczekiwanie na zatrzymanie instancji
       # =====================================================================
       - name: Oczekiwanie na zatrzymanie instancji
         if: steps.stop-ec2.outputs.already_stopped != 'true'
         run: |
+          EC2_INSTANCE_ID="${{ steps.ssm-params.outputs.ec2_instance_id }}"
+          AWS_REGION="${{ steps.ssm-params.outputs.aws_region }}"
           echo "Oczekiwanie na stan 'stopped'..."
-          aws ec2 wait instance-stopped --instance-ids "$EC2_INSTANCE_ID"
+          aws ec2 wait instance-stopped --instance-ids "$EC2_INSTANCE_ID" --region "$AWS_REGION"
           echo "Instancja zatrzymana"
 
       # =====================================================================
-      # KROK 5: Raport statusu
+      # KROK 4: Raport statusu
       # =====================================================================
       - name: Publikacja potwierdzenia zatrzymania
         if: success()
         run: |
+          EC2_INSTANCE_ID="${{ steps.ssm-params.outputs.ec2_instance_id }}"
+          AWS_REGION="${{ steps.ssm-params.outputs.aws_region }}"
+          
           echo "## ✅ Platforma zatrzymana" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Wlasciwosc | Wartosc |" >> $GITHUB_STEP_SUMMARY
@@ -151,6 +161,6 @@ jobs:
           echo "Workflow nie powiódł się. Sprawdź logi powyżej." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Możliwe przyczyny:" >> $GITHUB_STEP_SUMMARY
-          echo "- Brakuje EC2_INSTANCE_ID w GitHub Variables" >> $GITHUB_STEP_SUMMARY
+          echo "- Brakuje EC2_INSTANCE_ID w SSM Parameter Store" >> $GITHUB_STEP_SUMMARY
           echo "- Instancja nie istnieje" >> $GITHUB_STEP_SUMMARY
           echo "- Brakuje uprawnień IAM do zatrzymywania EC2" >> $GITHUB_STEP_SUMMARY

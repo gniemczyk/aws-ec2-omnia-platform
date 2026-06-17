@@ -3,8 +3,8 @@
 # =============================================================================
 # Automatyczne tworzenie EC2 + VPC + sieci przez Terraform.
 # Wyzwalane recznie przez workflow_dispatch.
-# Pobiera Terraform outputs i wyświetla w podsumowaniu (GitHub Variables trzeba ustawić ręcznie).
-# Wszystkie wartosci z GitHub Variables/Secrets - BRAK hardcode.
+# Pobiera Terraform outputs i zapisuje w AWS SSM Parameter Store.
+# Wszystkie wartosci z AWS SSM Parameter Store/Secrets - BRAK hardcode.
 # =============================================================================
 
 name: "Utwórz Infrastrukturę"
@@ -12,11 +12,10 @@ name: "Utwórz Infrastrukturę"
 on:
   workflow_dispatch:
 
-# Wymagane uprawnienia do uwierzytelniania AWS OIDC i edycji GitHub Variables
+# Wymagane uprawnienia do uwierzytelniania AWS OIDC
 permissions:
   id-token: write
-  contents: write
-  actions: write
+  contents: read
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
@@ -37,13 +36,22 @@ jobs:
 
     steps:
       # =====================================================================
-      # KROK 0: Sprawdzenie czy infrastruktura juz istnieje
+      # KROK 0: Sprawdzenie czy infrastruktura juz istnieje w SSM
       # =====================================================================
-      - name: Sprawdzenie istniejącej infrastruktury
+      - name: Konfiguracja poswiadczen AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: github-actions-create-check
+
+      - name: Sprawdzenie istniejącej infrastruktury w SSM
         run: |
-          if [ -n "${{ vars.EC2_INSTANCE_ID }}" ]; then
+          EC2_INSTANCE_ID=$(aws ssm get-parameter --name "/omnia/EC2_INSTANCE_ID" --region us-east-1 --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          
+          if [ -n "$EC2_INSTANCE_ID" ] && [ "$EC2_INSTANCE_ID" != "None" ]; then
             echo "::error::Infrastruktura już istnieje!"
-            echo "::error::EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}"
+            echo "::error::EC2_INSTANCE_ID: $EC2_INSTANCE_ID"
             echo ""
             echo "❌ Tworzenie infrastruktury jest niemożliwe!"
             echo ""
@@ -54,7 +62,7 @@ jobs:
             echo ""
             echo "Jeśli chcesz zacząć od nowa:"
             echo "  - Najpierw uruchom 'Zniszcz Infrastrukturę'"
-            echo "  - Usuń GitHub Variables: EC2_INSTANCE_ID, PLATFORM_BASE_DIR"
+            echo "  - SSM Parameters będą skasowane automatycznie"
             echo "  - Wtedy będziesz mógł ponownie tworzyć infrastrukturę"
             exit 1
           else
@@ -76,9 +84,9 @@ jobs:
           terraform_version: ">= 1.5.0"
 
       # =====================================================================
-      # KROK 3: Uwierzytelnianie do AWS przez OIDC
+      # KROK 3: Uwierzytelnianie do AWS przez OIDC (dla Terraform)
       # =====================================================================
-      - name: Konfiguracja poswiadczen AWS (OIDC)
+      - name: Konfiguracja poswiadczen AWS (OIDC) - Terraform
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -197,16 +205,46 @@ jobs:
           echo "IAM Role: $IAM_ROLE"
 
       # =====================================================================
-      # KROK 10: Ustawienie GitHub Variables (przez CLI)
+      # KROK 10: Zapis Terraform outputs do AWS SSM Parameter Store
       # =====================================================================
-      - name: Ustawienie GitHub Variables
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            console.log('ℹ️  Terraform outputs pobrane. Variables wyświetlone w summary.');
-            console.log('GitHub API nie pozwala ustawiać Variables bez Personal Access Token (security feature).');
-            console.log('Variables muszą być ustawione ręcznie lub pre-skonfigurowane.');
+      - name: Zapis parametrow do AWS SSM
+        run: |
+          INSTANCE_ID="${{ steps.terraform-output.outputs.instance_id }}"
+          AWS_REGION="${{ env.AWS_REGION }}"
+          PLATFORM_NAME="${{ env.PLATFORM_NAME }}"
+          PLATFORM_BASE_DIR="${{ env.PLATFORM_BASE_DIR }:-/opt/omnia"
+          
+          echo "Zapisywanie parametrow do SSM Parameter Store..."
+          
+          aws ssm put-parameter \
+            --name "/omnia/EC2_INSTANCE_ID" \
+            --value "$INSTANCE_ID" \
+            --type "String" \
+            --overwrite \
+            --region us-east-1
+          
+          aws ssm put-parameter \
+            --name "/omnia/AWS_REGION" \
+            --value "$AWS_REGION" \
+            --type "String" \
+            --overwrite \
+            --region us-east-1
+          
+          aws ssm put-parameter \
+            --name "/omnia/PLATFORM_NAME" \
+            --value "$PLATFORM_NAME" \
+            --type "String" \
+            --overwrite \
+            --region us-east-1
+          
+          aws ssm put-parameter \
+            --name "/omnia/PLATFORM_BASE_DIR" \
+            --value "$PLATFORM_BASE_DIR" \
+            --type "String" \
+            --overwrite \
+            --region us-east-1
+          
+          echo "✅ Parametry zapisane w SSM Parameter Store (us-east-1)"
 
 
       # =====================================================================
@@ -235,12 +273,13 @@ jobs:
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "## ⚙️ Następne kroki" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Uruchom workflow **'Uruchom Platform'** - będzie używać GitHub Variables:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`AWS_REGION\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`PLATFORM_NAME\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`EC2_INSTANCE_ID\`" >> $GITHUB_STEP_SUMMARY
+          echo "Uruchom workflow **'Uruchom Platform'** - będzie używać AWS SSM Parameter Store:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`/omnia/EC2_INSTANCE_ID\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`/omnia/AWS_REGION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`/omnia/PLATFORM_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`/omnia/PLATFORM_BASE_DIR\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> 💡 Jeśli Variables nie są ustawione → workflow 'Uruchom Platform' będzie czekać na Terraform init z komunikatem jakich Variables brakuje"  >> $GITHUB_STEP_SUMMARY
+          echo "> 💡 Parametry zostały automatycznie zapisane w SSM Parameter Store"  >> $GITHUB_STEP_SUMMARY
 
       - name: Publikacja podsumowania (FAILURE)
         if: failure()
