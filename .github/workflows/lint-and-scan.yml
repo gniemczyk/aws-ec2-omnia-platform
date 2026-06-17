@@ -165,17 +165,42 @@ jobs:
     steps:
       - name: "Podsumowanie"
         run: |
-          echo "✅ Walidacja i skanowanie bezpieczeństwa ukończone"
+          echo "═════════════════════════════════════════════════════════════"
+          echo "📋 PODSUMOWANIE WALIDACJI I BEZPIECZEŃSTWA"
+          echo "═════════════════════════════════════════════════════════════"
           echo ""
-          echo "Sprawdzenia:"
-          echo "  ✓ Formatowanie Terraform"
-          echo "  ✓ Składnia Terraform"
-          echo "  ✓ Bezpieczeństwo (Trivy)"
+          echo "Status jobów:"
+          echo "  - lint-terraform: ${{ needs.lint-terraform.result }}"
+          echo "  - security-scan: ${{ needs.security-scan.result }}"
           echo ""
-          echo "Workflow status: ${{ job.status }}"
           
-          if [ "${{ job.status }}" != "success" ]; then
+          LINT_STATUS="${{ needs.lint-terraform.result }}"
+          SECURITY_STATUS="${{ needs.security-scan.result }}"
+          
+          # Sprawdzenie czy wszystkie joby się powiodły
+          if [ "$LINT_STATUS" = "success" ] && [ "$SECURITY_STATUS" = "success" ]; then
+            echo "✅ Wszystkie sprawdzenia POWIODŁY SIĘ!"
             echo ""
-            echo "❌ Niektóre sprawdzenia nie powiodły się"
+            echo "✓ Formatowanie Terraform - OK"
+            echo "✓ Składnia Terraform - OK"
+            echo "✓ Bezpieczeństwo (Trivy) - OK"
+            echo ""
+            exit 0
+          else
+            echo "❌ NIEKTÓRE SPRAWDZENIA NIEUDANE:"
+            echo ""
+            if [ "$LINT_STATUS" != "success" ]; then
+              echo "  ❌ Walidacja Terraform: $LINT_STATUS"
+            else
+              echo "  ✅ Walidacja Terraform: success"
+            fi
+            
+            if [ "$SECURITY_STATUS" != "success" ]; then
+              echo "  ❌ Skanowanie Bezpieczeństwa: $SECURITY_STATUS"
+            else
+              echo "  ✅ Skanowanie Bezpieczeństwa: success"
+            fi
+            echo ""
+            echo "⚠️  WORKFLOW FAILED - Napraw błędy przed merge!"
             exit 1
           fi

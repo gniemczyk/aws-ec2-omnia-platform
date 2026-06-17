@@ -9,7 +9,7 @@
 #   - Nie mają wpływu na naszą architekturę
 # =============================================================================
 
-# Przykład:
-# CVE-2021-12345  # Krótki opis podatności i powód ignorowania
-
-# Dodaj wpisy wg potrzeb po analizie wyników Trivy
+# AWS-0104: Security group rule allows unrestricted egress to any IP address
+# UZASADNIENIE: Wymagane dla cloudflared tunnels - komunikacja wychodzaca
+# do sieci Cloudflare. Brak bezpośrednich portów przychodzących - bezpieczne.
+AWS-0104
