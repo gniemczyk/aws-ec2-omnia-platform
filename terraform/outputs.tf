@@ -9,8 +9,11 @@ output "available_azs_all" {
 
 output "azs_with_instance_type" {
   description = "Strefy AZ gdzie dostepny jest typ instancji (z dynamicznym failoverem)"
-  value = distinct(
-    [for item in data.aws_ec2_instance_type_offerings.available : item.location]
+  value = try(
+    distinct(
+      data.aws_ec2_instance_type_offerings.available.instance_type_offerings[*].location
+    ),
+    []
   )
 }
 
@@ -18,8 +21,11 @@ output "selected_az_failover_info" {
   description = "Informacja o wyborze AZ - czy to byla preferowana czy failover"
   value = (
     contains(
-      distinct(
-        [for item in data.aws_ec2_instance_type_offerings.available : item.location]
+      try(
+        distinct(
+          data.aws_ec2_instance_type_offerings.available.instance_type_offerings[*].location
+        ),
+        []
       ),
       data.aws_availability_zones.available.names[var.preferred_az_index]
     ) ?
