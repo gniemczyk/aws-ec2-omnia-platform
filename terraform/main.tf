@@ -56,7 +56,7 @@ data "aws_availability_zones" "available" {
 
 # Sprawdzenie dostepnosci typu instancji w kazdej strefie AZ
 # Filtuje strefy, gdzie t4g.small jest dostepny
-data "aws_ec2_instance_type_offerings" "available" {
+data "aws_ec2_instance_type_offering" "available" {
   filter {
     name   = "instance-type"
     values = [var.instance_type]
@@ -105,7 +105,7 @@ locals {
   # Lista stref AZ gdzie dostepny jest t4g.small
   azs_with_instance_type = try(
     distinct(
-      data.aws_ec2_instance_type_offerings.available.instance_type_offerings[*].location
+      [for o in data.aws_ec2_instance_type_offering.available.instance_type_offering : o.location]
     ),
     []
   )
