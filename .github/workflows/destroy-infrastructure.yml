@@ -75,16 +75,12 @@ jobs:
           role-session-name: github-actions-destroy-infrastructure
 
       # =====================================================================
-      # KROK 6: Terraform destroy
+      # KROK 6: Terraform destroy (bez backendu - backend może być po staremu)
       # =====================================================================
       - name: Terraform destroy
         working-directory: terraform
         run: |
-          terraform init -no-color \
-            -backend-config="bucket=${{ env.PLATFORM_NAME }}-tfstate" \
-            -backend-config="key=terraform.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=${{ env.PLATFORM_NAME }}-tflock"
+          terraform init -no-color -backend=false
           
           terraform destroy \
             -var="aws_region=${{ env.AWS_REGION }}" \
@@ -108,40 +104,51 @@ jobs:
           echo "✅ Parametry SSM skasowane"
 
       # =====================================================================
-      # KROK 8: Cleanup Backend - opróżnij i usuń S3 + DynamoDB
+      # KROK 8: Cleanup Backend - czyść OBIE nazwy (starą + nową)
       # =====================================================================
-      - name: Cleanup Backend
-        env:
-          BUCKET_NAME: ${{ env.PLATFORM_NAME }}-tfstate
-          TABLE_NAME: ${{ env.PLATFORM_NAME }}-tflock
+      - name: Cleanup Backend - czyść S3 + DynamoDB
         run: |
-          echo "Czyszczenie S3 bucket..."
-          # Usuń wszystkie wersje obiektów (versioning)
-          aws s3api list-object-versions --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} \
-            --query 'Versions[*].[Key,VersionId]' --output text 2>/dev/null | \
-            while read key versionid; do
-              if [ ! -z "$key" ]; then
-                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$versionid" --region ${{ env.AWS_REGION }} 2>/dev/null || true
-              fi
-            done
+          # Nowe nazwy (po refactoringu)
+          NEW_BUCKET="${{ env.PLATFORM_NAME }}-tfstate"
+          NEW_TABLE="${{ env.PLATFORM_NAME }}-tflock"
           
-          # Usuń delete markers
-          aws s3api list-object-versions --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} \
-            --query 'DeleteMarkers[*].[Key,VersionId]' --output text 2>/dev/null | \
-            while read key versionid; do
-              if [ ! -z "$key" ]; then
-                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$versionid" --region ${{ env.AWS_REGION }} 2>/dev/null || true
-              fi
-            done
+          # Stare nazwy (przed refactoringiem)
+          OLD_BUCKET="${{ env.PLATFORM_NAME }}-tf-state-${{ github.repository_owner }}"
+          OLD_TABLE="${{ env.PLATFORM_NAME }}-tf-locks"
           
-          # Usuń bucket
-          echo "Usuwanie bucketu S3 ($BUCKET_NAME)..."
-          aws s3 rb "s3://$BUCKET_NAME" --force --region ${{ env.AWS_REGION }} 2>/dev/null || echo "Bucket $BUCKET_NAME juz usuniety lub nie istnieje"
+          echo "Czyszczenie S3 i DynamoDB..."
           
-          echo "Usuwanie tabeli DynamoDB ($TABLE_NAME)..."
-          aws dynamodb delete-table --table-name "$TABLE_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null || echo "Tabela $TABLE_NAME juz usunieta lub nie istnieje"
+          # Czyść nowe zasoby
+          for BUCKET in "$NEW_BUCKET" "$OLD_BUCKET"; do
+            echo "Czyszczenie bucketu: $BUCKET"
+            aws s3api list-object-versions --bucket "$BUCKET" --region ${{ env.AWS_REGION }} \
+              --query 'Versions[*].[Key,VersionId]' --output text 2>/dev/null | \
+              while read key versionid; do
+                if [ ! -z "$key" ]; then
+                  aws s3api delete-object --bucket "$BUCKET" --key "$key" --version-id "$versionid" --region ${{ env.AWS_REGION }} 2>/dev/null || true
+                fi
+              done
+            
+            # Usuń delete markers
+            aws s3api list-object-versions --bucket "$BUCKET" --region ${{ env.AWS_REGION }} \
+              --query 'DeleteMarkers[*].[Key,VersionId]' --output text 2>/dev/null | \
+              while read key versionid; do
+                if [ ! -z "$key" ]; then
+                  aws s3api delete-object --bucket "$BUCKET" --key "$key" --version-id "$versionid" --region ${{ env.AWS_REGION }} 2>/dev/null || true
+                fi
+              done
+            
+            # Usuń bucket
+            aws s3 rb "s3://$BUCKET" --force --region ${{ env.AWS_REGION }} 2>/dev/null || echo "  Bucket $BUCKET juz usuniety"
+          done
           
-          echo "✅ Backend cleanup kompletny"
+          # Czyść obie tabele DynamoDB
+          for TABLE in "$NEW_TABLE" "$OLD_TABLE"; do
+            echo "Czyszczenie tabeli DynamoDB: $TABLE"
+            aws dynamodb delete-table --table-name "$TABLE" --region ${{ env.AWS_REGION }} 2>/dev/null || echo "  Tabela $TABLE juz usunieta"
+          done
+          
+          echo "✅ Backend cleanup kompletny (obie nazwy)"
 
       # =====================================================================
       # KROK 9: Czyszczenie GitHub Variables (opcjonalnie)
