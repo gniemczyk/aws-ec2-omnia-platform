@@ -200,40 +200,15 @@ jobs:
       # =====================================================================
       # KROK 10: Ustawienie GitHub Variables (przez CLI)
       # =====================================================================
-      - name: Instalacja GitHub CLI
-        run: |
-          echo "📦 Instalacja GitHub CLI..."
-          sudo apt-get update > /dev/null
-          sudo apt-get install -y gh > /dev/null
-          echo "✅ GitHub CLI zainstalowany"
-          gh --version
-
       - name: Ustawienie GitHub Variables
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          INSTANCE_ID: ${{ steps.terraform-output.outputs.instance_id }}
-          AZ: ${{ steps.terraform-output.outputs.availability_zone }}
-        run: |
-          REPO="${{ github.repository }}"
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            console.log('ℹ️  Terraform outputs pobrane. Variables wyświetlone w summary.');
+            console.log('GitHub API nie pozwala ustawiać Variables bez Personal Access Token (security feature).');
+            console.log('Variables muszą być ustawione ręcznie lub pre-skonfigurowane.');
 
-          echo "Ustawianie GitHub Variables..."
-
-          gh variable set EC2_INSTANCE_ID --body "$INSTANCE_ID" -R "$REPO" || {
-            echo "::error::Nie udalo sie ustawic EC2_INSTANCE_ID"
-            exit 1
-          }
-
-          gh variable set AWS_REGION --body "${{ env.AWS_REGION }}" -R "$REPO" || {
-            echo "::error::Nie udalo sie ustawic AWS_REGION"
-            exit 1
-          }
-
-          gh variable set PLATFORM_NAME --body "${{ env.PLATFORM_NAME }}" -R "$REPO" || {
-            echo "::error::Nie udalo sie ustawic PLATFORM_NAME"
-            exit 1
-          }
-
-          echo "✅ GitHub Variables ustawione pomyslnie"
 
       # =====================================================================
       # KROK 11: Podsumowanie
@@ -252,22 +227,21 @@ jobs:
           echo "| Security Group | \`${{ steps.terraform-output.outputs.security_group_id }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "## 🔐 Polaczenie przez SSM - KOPIUJ/WKLEJ (gdy instancja startuje)" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔐 Polaczenie przez SSM" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "aws ssm start-session --target ${{ steps.terraform-output.outputs.instance_id }} --region ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "### Nastepne kroki:" >> $GITHUB_STEP_SUMMARY
-          echo "1. Sprawdz GitHub Variables - zostaly ustawione automatycznie" >> $GITHUB_STEP_SUMMARY
-          echo "2. Uruchom workflow **'Uruchom Platform'** (rozpocznie EC2 i wdrozy aplikacje)" >> $GITHUB_STEP_SUMMARY
-          echo "3. W workflow 'Uruchom Platform' znajdziesz:" >> $GITHUB_STEP_SUMMARY
-          echo "   - Polecenie SSM do dostępu do instancji" >> $GITHUB_STEP_SUMMARY
-          echo "   - Linki do aplikacji (Grafana, API, itd.)" >> $GITHUB_STEP_SUMMARY
+          echo "## ⚙️ Następne kroki" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> 💡 **Pamietaj:** Infrastruktura teraz istnieje w AWS. Koszty sie naliczaja." >> $GITHUB_STEP_SUMMARY
-          echo "> Aby zaoszczedzic, zatrzymaj EC2 workflow 'Zatrzymaj Platform' lub usun cala infrastrukture 'Zniszcz Infrastrukture'">> $GITHUB_STEP_SUMMARY
+          echo "Uruchom workflow **'Uruchom Platform'** - będzie używać GitHub Variables:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`AWS_REGION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`PLATFORM_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`EC2_INSTANCE_ID\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> 💡 Jeśli Variables nie są ustawione → workflow 'Uruchom Platform' będzie czekać na Terraform init z komunikatem jakich Variables brakuje"  >> $GITHUB_STEP_SUMMARY
 
       - name: Publikacja podsumowania (FAILURE)
         if: failure()
