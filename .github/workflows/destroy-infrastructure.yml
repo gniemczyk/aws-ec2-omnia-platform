@@ -87,6 +87,8 @@ jobs:
             -backend-config="dynamodb_table=${{ env.PLATFORM_NAME }}-tf-locks"
           
           terraform destroy \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="project_name=${{ env.PLATFORM_NAME }}" \
             -no-color \
             -auto-approve
 
