@@ -103,10 +103,9 @@ locals {
   available_azs = data.aws_availability_zones.available.names
 
   # Lista stref AZ gdzie dostepny jest t4g.small
-  azs_with_instance_type = distinct([
-    for offering in data.aws_ec2_instance_type_offerings.available :
-    offering.location
-  ])
+  azs_with_instance_type = distinct(
+    data.aws_ec2_instance_type_offerings.available.instance_type_offerings[*].location
+  )
 
   # Sortowanie AZ z preferencja na preferred_az_index
   # 1. Branie pierwsze dostepne AZ ze wskazanym indeksem
