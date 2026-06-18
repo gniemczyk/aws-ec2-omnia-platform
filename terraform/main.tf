@@ -263,6 +263,21 @@ resource "aws_vpc_endpoint" "ec2_messages" {
   }
 }
 
+# S3 Gateway Endpoint (DARMOWY) - wymagany do:
+# - Pobrania pakietu SSM Agent podczas user_data
+# - Operacji SSM Agent (logi, dokumenty)
+# - Docker pull (ECR uzywa S3 pod spodem)
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.platform.id
+  service_name      = "com.amazonaws.${var.aws_region}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [aws_route_table.platform.id]
+
+  tags = {
+    Name = "${local.name_prefix}-s3-endpoint"
+  }
+}
+
 # =============================================================================
 # GRUPA BEZPIECZENSTWA (Zero Inbound - Maksymalne Bezpieczenstwo)
 # =============================================================================
@@ -360,14 +375,56 @@ resource "aws_instance" "platform" {
     delete_on_termination = true
   }
 
-  # User data: uruchomienie agenta SSM przy pierwszym starcie
+  # User data: instalacja i uruchomienie agenta SSM na Debian ARM64
+  # UWAGA: SSM Agent NIE jest preinstalowany na Debian - wymaga instalacji!
   user_data = base64encode(<<-EOF
     #!/bin/bash
     set -e
-    # Agent SSM jest preinstalowany na Debian - upewniamy sie ze dziala
+    exec > /var/log/user-data.log 2>&1
+    echo "=== User Data Start: $(date) ==="
+
+    # Czekanie na pelna inicjalizacje sieci (VPC Endpoints/IPv6)
+    echo "Czekanie na dostepnosc sieci..."
+    for i in $(seq 1 30); do
+      if curl -s --max-time 5 -o /dev/null "https://s3.${var.aws_region}.amazonaws.com" 2>/dev/null; then
+        echo "Siec dostepna (proba $i)"
+        break
+      fi
+      echo "Proba $i/30 - brak sieci, czekam 5s..."
+      sleep 5
+    done
+
+    # Instalacja SSM Agent na Debian ARM64
+    echo "Instalacja SSM Agent..."
+    apt-get update -y
+    apt-get install -y curl
+
+    # Pobranie SSM Agent - priorytet: S3 regionalny (przez VPC Gateway Endpoint)
+    SSM_DEB="/tmp/amazon-ssm-agent.deb"
+    curl -fsSL "https://s3.${var.aws_region}.amazonaws.com/amazon-ssm-${var.aws_region}/latest/debian_arm64/amazon-ssm-agent.deb" \
+      -o "$SSM_DEB" || \
+    curl -fsSL "https://amazon-ssm-${var.aws_region}.s3.${var.aws_region}.amazonaws.com/latest/debian_arm64/amazon-ssm-agent.deb" \
+      -o "$SSM_DEB"
+
+    dpkg -i "$SSM_DEB"
+    rm -f "$SSM_DEB"
+
+    # Uruchomienie i wlaczenie SSM Agent
     systemctl enable amazon-ssm-agent
     systemctl start amazon-ssm-agent
+
+    # Weryfikacja
+    sleep 3
+    if systemctl is-active --quiet amazon-ssm-agent; then
+      echo "SSM Agent dziala poprawnie"
+    else
+      echo "BLAD: SSM Agent nie uruchomil sie!"
+      systemctl status amazon-ssm-agent || true
+      journalctl -u amazon-ssm-agent --no-pager -n 20 || true
+    fi
+
     echo "SSM_READY" > /tmp/instance-ready
+    echo "=== User Data End: $(date) ==="
   EOF
   )
 
