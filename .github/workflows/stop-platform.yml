@@ -34,6 +34,10 @@ jobs:
     name: "Zatrzymanie instancji Omnia Platform"
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      PLATFORM_NAME: ${{ vars.PLATFORM_NAME }}
 
     steps:
       # =====================================================================

@@ -27,6 +27,10 @@ jobs:
     name: "Tworzenie infrastruktury Terraform"
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      PLATFORM_NAME: ${{ vars.PLATFORM_NAME }}
+      AUTO_APPROVE: true
     outputs:
       instance_id: ${{ steps.terraform-output.outputs.instance_id }}
       vpc_id: ${{ steps.terraform-output.outputs.vpc_id }}
