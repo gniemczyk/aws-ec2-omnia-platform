@@ -178,51 +178,7 @@ jobs:
           echo "✅ Terraform destroy zakończony"
 
       # =====================================================================
-      # KROK 9: Czyszczenie S3 i DynamoDB
-      # =====================================================================
-      - name: Czyszczenie S3 Bucket
-        env:
-          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
-        run: |
-          echo "🧹 Czyszczenie zasobów Backend..."
-          echo ""
-          
-          # ============================================================
-          # USUWANIE S3 BUCKET
-          # ============================================================
-          echo "🗑️  Czyszczenie S3 Bucket: $BUCKET_NAME"
-          
-          if aws s3 ls "s3://$BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>&1 | grep -q 'NoSuchBucket'; then
-            echo "ℹ️  Bucket już nie istnieje"
-          else
-            # Usunięcie wszystkich wersji obiektów
-            echo "  📝 Usuwanie wszystkich wersji obiektów..."
-            aws s3api list-object-versions \
-              --bucket "$BUCKET_NAME" \
-              --region ${{ env.AWS_REGION }} \
-              --query 'Versions[].{Key:Key,VersionId:VersionId}' \
-              --output json | jq -r '.[] | "--key \(.Key) --version-id \(.VersionId)"' | \
-              xargs -I {} aws s3api delete-object --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} {} 2>/dev/null || true
-            
-            # Usunięcie wszystkich delete markers
-            echo "  🗑️  Usuwanie delete markers..."
-            aws s3api list-object-versions \
-              --bucket "$BUCKET_NAME" \
-              --region ${{ env.AWS_REGION }} \
-              --query 'DeleteMarkers[].{Key:Key,VersionId:VersionId}' \
-              --output json | jq -r '.[] | "--key \(.Key) --version-id \(.VersionId)"' | \
-              xargs -I {} aws s3api delete-object --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} {} 2>/dev/null || true
-            
-            # Usunięcie bucketu
-            echo "  🪣 Usuwanie S3 Bucket..."
-            aws s3 rb "s3://$BUCKET_NAME" --region ${{ env.AWS_REGION }} --force 2>/dev/null || echo "  ⚠️  Nie można usunąć bucketu - może zawierać obiekty"
-          fi
-          
-          echo ""
-          echo "✅ Backend S3 wyczyszczony"
-
-      # =====================================================================
-      # KROK 10: Usunięcie parametrow SSM
+      # KROK 9: Usunięcie parametrow SSM (tylko po udanym terraform destroy)
       # =====================================================================
       - name: Usunięcie parametrow SSM
         run: |
@@ -239,12 +195,62 @@ jobs:
           echo "✅ Parametry SSM usunięte"
 
       # =====================================================================
-      # KROK 11: Czyszczenie GitHub Variables (informacja)
+      # KROK 11: Czyszczenie S3 - OSTATNI KROK (tylko jesli wszystko OK)
       # =====================================================================
-      - name: Informacja o GitHub Variables
+      # S3 bucket jest usuwany NA KONCU bo:
+      # - Zawiera terraform.tfstate potrzebny do retry jesli cos failnie
+      # - Jesli terraform destroy + SSM cleanup sie udaly = bezpiecznie usunac
+      - name: Czyszczenie S3 Bucket
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
         run: |
-          echo "::notice::GitHub Variables nie zostały automatycznie usunięte."
-          echo "::notice::Możesz je manualnie usunąć w Settings > Variables and secrets > Actions"
+          echo "🧹 Czyszczenie S3 Bucket: $BUCKET_NAME (ostatni krok)"
+          echo ""
+          
+          # Sprawdzenie czy bucket istnieje
+          if ! aws s3api head-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "ℹ️  Bucket nie istnieje - pomijam"
+            exit 0
+          fi
+          
+          echo "  📝 Usuwanie wszystkich obiektów (wersjonowanych)..."
+          
+          # Usuwanie wszystkich wersji obiektow
+          VERSIONS=$(aws s3api list-object-versions \
+            --bucket "$BUCKET_NAME" \
+            --region ${{ env.AWS_REGION }} \
+            --output json 2>/dev/null || echo '{}')
+          
+          # Usun wersje
+          echo "$VERSIONS" | jq -r '.Versions[]? | "\(.Key) \(.VersionId)"' | while read -r KEY VID; do
+            [ -z "$KEY" ] && continue
+            aws s3api delete-object \
+              --bucket "$BUCKET_NAME" \
+              --key "$KEY" \
+              --version-id "$VID" \
+              --region ${{ env.AWS_REGION }} 2>/dev/null || true
+          done
+          
+          # Usun delete markers
+          echo "$VERSIONS" | jq -r '.DeleteMarkers[]? | "\(.Key) \(.VersionId)"' | while read -r KEY VID; do
+            [ -z "$KEY" ] && continue
+            aws s3api delete-object \
+              --bucket "$BUCKET_NAME" \
+              --key "$KEY" \
+              --version-id "$VID" \
+              --region ${{ env.AWS_REGION }} 2>/dev/null || true
+          done
+          
+          # Usun bucket
+          echo "  🪣 Usuwanie bucketu..."
+          aws s3 rb "s3://$BUCKET_NAME" --region ${{ env.AWS_REGION }} --force 2>/dev/null || true
+          
+          # Weryfikacja
+          if ! aws s3api head-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "✅ S3 Bucket usunięty pomyślnie"
+          else
+            echo "::warning::⚠️ Bucket nadal istnieje - może wymagać ręcznego usunięcia"
+          fi
 
       # =====================================================================
       # KROK 12: Podsumowanie
