@@ -383,9 +383,6 @@ resource "aws_instance" "platform" {
     exec > /var/log/user-data.log 2>&1
     echo "=== User Data Start: $(date) ==="
 
-    # Haslo awaryjne do Serial Console (gdyby SSM nie dzialal)
-    echo 'root:Opencode123!' | chpasswd
-
     # Czekanie na siec (S3 Gateway Endpoint lub IPv6)
     echo "Czekanie na dostepnosc sieci..."
     for i in $(seq 1 30); do
