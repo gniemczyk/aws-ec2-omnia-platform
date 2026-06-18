@@ -94,62 +94,138 @@ jobs:
           role-session-name: github-actions-create-infrastructure
 
       # =====================================================================
-      # KROK 4: Bootstrap Backend (S3 + DynamoDB)
+      # KROK 4: Generowanie SUFFIX z PLATFORM_NAME + Walidacja
+      # =====================================================================
+      - name: Generowanie SUFFIX i sprawdzenie konfliktu
+        id: suffix-gen
+        run: |
+          PLATFORM_NAME="${{ env.PLATFORM_NAME }}"
+          
+          # Generowanie SUFFIX z SHA256(PLATFORM_NAME)
+          SUFFIX=$(echo -n "$PLATFORM_NAME" | sha256sum | cut -c1-6)
+          
+          echo "SUFFIX=$SUFFIX" >> $GITHUB_OUTPUT
+          echo "BUCKET_NAME=${PLATFORM_NAME}-tfstate-${SUFFIX}" >> $GITHUB_OUTPUT
+          echo "TABLE_NAME=${PLATFORM_NAME}-tflock" >> $GITHUB_OUTPUT
+          
+          # Komunikacja
+          echo "📊 Generowanie identyfikatora:"
+          echo "  PLATFORM_NAME: $PLATFORM_NAME"
+          echo "  SUFFIX (SHA256): $SUFFIX"
+          echo "  BUCKET_NAME: ${PLATFORM_NAME}-tfstate-${SUFFIX}"
+          echo "  TABLE_NAME: ${PLATFORM_NAME}-tflock"
+          
+          # ============================================================
+          # WALIDACJA: Czy bucket już istnieje?
+          # ============================================================
+          echo ""
+          echo "🔍 Sprawdzenie czy infrastruktura już istnieje..."
+          
+          BUCKET_EXISTS=$(aws s3 ls "s3://${PLATFORM_NAME}-tfstate-${SUFFIX}" 2>&1 || echo "")
+          
+          if [[ "$BUCKET_EXISTS" == *"NoSuchBucket"* ]] || [[ -z "$BUCKET_EXISTS" ]]; then
+            echo "✅ Bucket nie istnieje - można tworzyć infrastrukturę"
+          else
+            echo "::error::❌ KONFLIKT! Infrastruktura już istnieje!"
+            echo "::error::Bucket: ${PLATFORM_NAME}-tfstate-${SUFFIX}"
+            echo ""
+            echo "::error::Aby kontynuować, wybierz jedną z opcji:"
+            echo "::error::1️⃣  Jeśli chcesz zniszczyć istniejącą infrastrukturę:"
+            echo "::error::    - Uruchom workflow 'Zniszcz Infrastrukturę'"
+            echo "::error::2️⃣  Jeśli chcesz stworzyć nową platformę:"
+            echo "::error::    - Zmień PLATFORM_NAME na GitHub Variables"
+            echo "::error::    - Nowy PLATFORM_NAME = nowy SUFFIX = nowe resources"
+            exit 1
+          fi
+
+      # =====================================================================
+      # KROK 5: Bootstrap Backend (S3 + DynamoDB)
       # =====================================================================
       - name: Bootstrap Backend
         env:
-          BUCKET_NAME: ${{ env.PLATFORM_NAME }}-tfstate
-          TABLE_NAME: ${{ env.PLATFORM_NAME }}-tflock
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+          TABLE_NAME: ${{ steps.suffix-gen.outputs.TABLE_NAME }}
+          SUFFIX: ${{ steps.suffix-gen.outputs.SUFFIX }}
         run: |
+          echo "📦 Tworzenie zasobów Backend (S3 + DynamoDB)..."
+          
           # Utworzenie bucketu S3
-          if ! aws s3 ls "s3://$BUCKET_NAME" 2>&1 | grep -q 'NoSuchBucket'; then
-            echo "Bucket $BUCKET_NAME juz istnieje."
-          else
-            echo "Tworzenie bucketu $BUCKET_NAME..."
-            aws s3 mb "s3://$BUCKET_NAME" --region ${{ env.AWS_REGION }}
-            aws s3api put-bucket-versioning --bucket "$BUCKET_NAME" --versioning-configuration Status=Enabled
-          fi
+          echo ""
+          echo "🪣 Tworzenie bucketu S3: $BUCKET_NAME"
+          aws s3 mb "s3://$BUCKET_NAME" --region ${{ env.AWS_REGION }}
+          
+          # Włączenie wersjonowania dla bucket'a
+          echo "📝 Włączanie wersjonowania..."
+          aws s3api put-bucket-versioning \
+            --bucket "$BUCKET_NAME" \
+            --versioning-configuration Status=Enabled
+          
+          # Blokowanie public access (security best practice)
+          echo "🔒 Blokowanie public access..."
+          aws s3api put-public-access-block \
+            --bucket "$BUCKET_NAME" \
+            --public-access-block-configuration \
+            "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+          
+          # Szyfrowanie domyślne (AES-256)
+          echo "🔐 Włączanie szyfrowania..."
+          aws s3api put-bucket-encryption \
+            --bucket "$BUCKET_NAME" \
+            --server-side-encryption-configuration '{
+              "Rules": [{
+                "ApplyServerSideEncryptionByDefault": {
+                  "SSEAlgorithm": "AES256"
+                }
+              }]
+            }'
 
           # Utworzenie tabeli DynamoDB
-          if aws dynamodb describe-table --table-name "$TABLE_NAME" --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
-            echo "Tabela $TABLE_NAME juz istnieje."
-          else
-            echo "Tworzenie tabeli $TABLE_NAME..."
-            aws dynamodb create-table \
-              --table-name "$TABLE_NAME" \
-              --attribute-definitions AttributeName=LockID,AttributeType=S \
-              --key-schema AttributeName=LockID,KeyType=HASH \
-              --billing-mode PAY_PER_REQUEST \
-              --region ${{ env.AWS_REGION }}
-          fi
+          echo ""
+          echo "🗄️  Tworzenie tabeli DynamoDB: $TABLE_NAME"
+          aws dynamodb create-table \
+            --table-name "$TABLE_NAME" \
+            --attribute-definitions AttributeName=LockID,AttributeType=S \
+            --key-schema AttributeName=LockID,KeyType=HASH \
+            --billing-mode PAY_PER_REQUEST \
+            --region ${{ env.AWS_REGION }} \
+            --tags Key=Project,Value=${{ env.PLATFORM_NAME }} Key=ManagedBy,Value=terraform
+          
+          echo ""
+          echo "✅ Backend resources utworzone pomyślnie!"
 
       # =====================================================================
-      # KROK 5: Terraform init
+      # KROK 6: Terraform init
       # =====================================================================
       - name: Terraform init
         working-directory: terraform
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+          TABLE_NAME: ${{ steps.suffix-gen.outputs.TABLE_NAME }}
         run: |
+          echo "🔧 Inicjalizacja Terraform..."
           terraform init -no-color \
-            -backend-config="bucket=${{ env.PLATFORM_NAME }}-tfstate" \
+            -backend-config="bucket=$BUCKET_NAME" \
             -backend-config="key=terraform.tfstate" \
             -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=${{ env.PLATFORM_NAME }}-tflock"
+            -backend-config="dynamodb_table=$TABLE_NAME"
 
       # =====================================================================
-      # KROK 6: Terraform validate
+      # KROK 7: Terraform validate
       # =====================================================================
       - name: Terraform validate
         working-directory: terraform
         run: |
+          echo "✓ Walidacja składni Terraform..."
           terraform validate -no-color
 
       # =====================================================================
-      # KROK 7: Terraform plan
+      # KROK 8: Terraform plan
       # =====================================================================
       - name: Terraform plan
         id: plan
         working-directory: terraform
         run: |
+          echo "📋 Planowanie zmian..."
           terraform plan \
             -var="aws_region=${{ env.AWS_REGION }}" \
             -var="project_name=${{ env.PLATFORM_NAME }}" \
@@ -157,14 +233,14 @@ jobs:
             -out=tfplan
 
       # =====================================================================
-      # KROK 8: Terraform apply (manual approval lub auto)
+      # KROK 9: Terraform apply (manual approval lub auto)
       # =====================================================================
       - name: Terraform apply
         id: apply
         working-directory: terraform
         run: |
           if [ "${{ env.AUTO_APPROVE }}" == "true" ]; then
-            echo "Auto-approve wlaczony - aplikowanie bez pytania"
+            echo "✅ Auto-approve włączony - aplikowanie bez pytania"
             terraform apply -no-color -auto-approve tfplan
           else
             echo "::warning::Czekanie na manualną akceptację workflow"
@@ -172,12 +248,14 @@ jobs:
           fi
 
       # =====================================================================
-      # KROK 9: Pobranie outputow Terraform
+      # KROK 10: Pobranie outputow Terraform
       # =====================================================================
       - name: Pobranie Terraform outputow
         id: terraform-output
         working-directory: terraform
         run: |
+          echo "📊 Pobieranie Terraform outputs..."
+          
           # Pobierz wszystkie outputy w formacie JSON
           OUTPUTS=$(terraform output -json)
           
@@ -205,16 +283,19 @@ jobs:
           echo "IAM Role: $IAM_ROLE"
 
       # =====================================================================
-      # KROK 10: Zapis Terraform outputs do AWS SSM Parameter Store
+      # KROK 11: Zapis Terraform outputs do AWS SSM Parameter Store
       # =====================================================================
       - name: Zapis parametrow do AWS SSM
+        env:
+          SUFFIX: ${{ steps.suffix-gen.outputs.SUFFIX }}
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
         run: |
           INSTANCE_ID="${{ steps.terraform-output.outputs.instance_id }}"
           AWS_REGION="${{ env.AWS_REGION }}"
           PLATFORM_NAME="${{ env.PLATFORM_NAME }}"
           PLATFORM_BASE_DIR="/opt/omnia"
           
-          echo "Zapisywanie parametrow do SSM Parameter Store..."
+          echo "💾 Zapisywanie parametrów do SSM Parameter Store..."
           
           aws ssm put-parameter \
             --name "/omnia/EC2_INSTANCE_ID" \
@@ -244,13 +325,30 @@ jobs:
             --overwrite \
             --region us-east-1
           
+          aws ssm put-parameter \
+            --name "/omnia/TFSTATE_BUCKET_SUFFIX" \
+            --value "$SUFFIX" \
+            --type "String" \
+            --overwrite \
+            --region us-east-1
+          
+          aws ssm put-parameter \
+            --name "/omnia/TFSTATE_BUCKET_NAME" \
+            --value "$BUCKET_NAME" \
+            --type "String" \
+            --overwrite \
+            --region us-east-1
+          
           echo "✅ Parametry zapisane w SSM Parameter Store (us-east-1)"
 
       # =====================================================================
-      # KROK 11: Podsumowanie
+      # KROK 12: Podsumowanie
       # =====================================================================
       - name: Publikacja podsumowania (SUCCESS)
         if: success()
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+          SUFFIX: ${{ steps.suffix-gen.outputs.SUFFIX }}
         run: |
           echo "## ✅ Infrastruktura gotowa" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -261,6 +359,8 @@ jobs:
           echo "| AZ | \`${{ steps.terraform-output.outputs.availability_zone }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| VPC | \`${{ steps.terraform-output.outputs.vpc_id }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Security Group | \`${{ steps.terraform-output.outputs.security_group_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| S3 Bucket | \`$BUCKET_NAME\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| SUFFIX | \`$SUFFIX\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "## 🔐 Polaczenie przez SSM" >> $GITHUB_STEP_SUMMARY
@@ -288,6 +388,7 @@ jobs:
           echo "Workflow nie powiódł się. Sprawdź logi powyżej, aby znaleźć przyczynę." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Możliwe przyczyny:" >> $GITHUB_STEP_SUMMARY
+          echo "- ❌ Infrastruktura już istnieje - zmień PLATFORM_NAME i spróbuj ponownie" >> $GITHUB_STEP_SUMMARY
           echo "- Brakuje AWS_ROLE_ARN w GitHub Secrets" >> $GITHUB_STEP_SUMMARY
           echo "- Brakuje AWS_REGION w GitHub Variables" >> $GITHUB_STEP_SUMMARY
           echo "- Brakuje PLATFORM_NAME w GitHub Variables" >> $GITHUB_STEP_SUMMARY

@@ -42,30 +42,65 @@ jobs:
           exit 1
 
       # =====================================================================
-      # KROK 2: Ostrzezenie
+      # KROK 2: Generowanie SUFFIX i przygotowanie
       # =====================================================================
-      - name: Ostrzezenie
+      - name: Generowanie SUFFIX z PLATFORM_NAME
+        id: suffix-gen
+        run: |
+          PLATFORM_NAME="${{ env.PLATFORM_NAME }}"
+          
+          # Regenerowanie SUFFIX z SHA256(PLATFORM_NAME) - musi być identyczny!
+          SUFFIX=$(echo -n "$PLATFORM_NAME" | sha256sum | cut -c1-6)
+          
+          echo "SUFFIX=$SUFFIX" >> $GITHUB_OUTPUT
+          echo "BUCKET_NAME=${PLATFORM_NAME}-tfstate-${SUFFIX}" >> $GITHUB_OUTPUT
+          echo "TABLE_NAME=${PLATFORM_NAME}-tflock" >> $GITHUB_OUTPUT
+          
+          echo "🔄 Regenerowanie identyfikatorów:"
+          echo "  PLATFORM_NAME: $PLATFORM_NAME"
+          echo "  SUFFIX (SHA256): $SUFFIX"
+          echo "  BUCKET_NAME: ${PLATFORM_NAME}-tfstate-${SUFFIX}"
+          echo "  TABLE_NAME: ${PLATFORM_NAME}-tflock"
+
+      # =====================================================================
+      # KROK 3: Ostrzezenie
+      # =====================================================================
+      - name: Ostrzezenie - weryfikacja zasobów
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+          TABLE_NAME: ${{ steps.suffix-gen.outputs.TABLE_NAME }}
         run: |
           echo "::warning::OSTRZEZENIE: Za 10 sekund zostanie uruchomiona operacja niszczenia!"
-          echo "::warning::Wszystkie zasoby AWS (EC2, VPC, sieci, storage) zostan usuniete!"
+          echo "::warning::❌ ZASOBY DO USUNIĘCIA:"
+          echo "::warning::- EC2 Instance"
+          echo "::warning::- VPC i Subnety"
+          echo "::warning::- Security Groups"
+          echo "::warning::- IAM Role i Instance Profile"
+          echo "::warning::- VPC Endpoints"
+          echo "::warning::- EBS Volumes"
+          echo "::warning::- S3 Bucket: $BUCKET_NAME"
+          echo "::warning::- DynamoDB Table: $TABLE_NAME"
+          echo "::warning::- SSM Parameters"
+          echo ""
+          echo "::warning::TA OPERACJA JE NIEODWRACALNA!"
           sleep 10
 
       # =====================================================================
-      # KROK 3: Pobranie repozytorium
+      # KROK 4: Pobranie repozytorium
       # =====================================================================
       - name: Pobranie repozytorium
         uses: actions/checkout@v4
 
       # =====================================================================
-      # KROK 4: Instalacja Terraform
+      # KROK 5: Instalacja Terraform
       # =====================================================================
       - name: Instalacja Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ">= 1.5.0"
 
       # =====================================================================
-      # KROK 5: Uwierzytelnianie do AWS przez OIDC
+      # KROK 6: Uwierzytelnianie do AWS przez OIDC
       # =====================================================================
       - name: Konfiguracja poswiadczen AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -75,11 +110,12 @@ jobs:
           role-session-name: github-actions-destroy-infrastructure
 
       # =====================================================================
-      # KROK 6: Terraform destroy
+      # KROK 7: Terraform destroy
       # =====================================================================
       - name: Terraform destroy
         working-directory: terraform
         run: |
+          echo "🔥 Niszczenie infrastruktury Terraform..."
           terraform init -no-color -backend=false -reconfigure
           
           terraform destroy \
@@ -88,51 +124,135 @@ jobs:
             -lock=false \
             -no-color \
             -auto-approve
+          
+          echo "✅ Terraform destroy zakończony"
 
       # =====================================================================
-      # KROK 7: Usunięcie parametrow SSM
+      # KROK 8: Czyszczenie S3 i DynamoDB
+      # =====================================================================
+      - name: Czyszczenie S3 Bucket i DynamoDB Table
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+          TABLE_NAME: ${{ steps.suffix-gen.outputs.TABLE_NAME }}
+        run: |
+          echo "🧹 Czyszczenie zasobów Backend..."
+          echo ""
+          
+          # ============================================================
+          # USUWANIE S3 BUCKET
+          # ============================================================
+          echo "🗑️  Czyszczenie S3 Bucket: $BUCKET_NAME"
+          
+          if aws s3 ls "s3://$BUCKET_NAME" 2>&1 | grep -q 'NoSuchBucket'; then
+            echo "ℹ️  Bucket już nie istnieje"
+          else
+            # Usunięcie wszystkich wersji obiektów
+            echo "  📝 Usuwanie wszystkich wersji obiektów..."
+            aws s3api list-object-versions \
+              --bucket "$BUCKET_NAME" \
+              --query 'Versions[].{Key:Key,VersionId:VersionId}' \
+              --output json | jq -r '.[] | "--key \(.Key) --version-id \(.VersionId)"' | \
+              xargs -I {} aws s3api delete-object --bucket "$BUCKET_NAME" {} 2>/dev/null || true
+            
+            # Usunięcie wszystkich delete markers
+            echo "  🗑️  Usuwanie delete markers..."
+            aws s3api list-object-versions \
+              --bucket "$BUCKET_NAME" \
+              --query 'DeleteMarkers[].{Key:Key,VersionId:VersionId}' \
+              --output json | jq -r '.[] | "--key \(.Key) --version-id \(.VersionId)"' | \
+              xargs -I {} aws s3api delete-object --bucket "$BUCKET_NAME" {} 2>/dev/null || true
+            
+            # Usunięcie bucketu
+            echo "  🪣 Usuwanie S3 Bucket..."
+            aws s3 rb "s3://$BUCKET_NAME" --force 2>/dev/null || echo "  ⚠️  Nie można usunąć bucketu - może zawierać obiekty"
+          fi
+          
+          echo "✅ S3 Bucket został czyszczony"
+          echo ""
+          
+          # ============================================================
+          # USUWANIE DYNAMODB TABLE
+          # ============================================================
+          echo "🗄️  Usuwanie DynamoDB Table: $TABLE_NAME"
+          
+          if aws dynamodb describe-table --table-name "$TABLE_NAME" --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+            echo "  🗑️  Usuwanie tabeli..."
+            aws dynamodb delete-table \
+              --table-name "$TABLE_NAME" \
+              --region ${{ env.AWS_REGION }}
+            
+            # Czekaj na całkowite usunięcie
+            echo "  ⏳ Czekanie na usunięcie tabeli..."
+            aws dynamodb wait table-not-exists \
+              --table-name "$TABLE_NAME" \
+              --region ${{ env.AWS_REGION }} 2>/dev/null || true
+            
+            echo "✅ DynamoDB Table usunięta"
+          else
+            echo "ℹ️  Tabela już nie istnieje"
+          fi
+          
+          echo ""
+          echo "✅ Backend resources całkowicie czyszcze"
+
+      # =====================================================================
+      # KROK 9: Usunięcie parametrow SSM
       # =====================================================================
       - name: Usunięcie parametrow SSM
         run: |
-          echo "Usuwanie parametrow SSM Parameter Store..."
+          echo "🗑️  Usuwanie parametrów SSM Parameter Store..."
           
-          aws ssm delete-parameter --name "/omnia/EC2_INSTANCE_ID" --region us-east-1 2>/dev/null || echo "Parameter nie istnieje"
-          aws ssm delete-parameter --name "/omnia/AWS_REGION" --region us-east-1 2>/dev/null || echo "Parameter nie istnieje"
-          aws ssm delete-parameter --name "/omnia/PLATFORM_NAME" --region us-east-1 2>/dev/null || echo "Parameter nie istnieje"
-          aws ssm delete-parameter --name "/omnia/PLATFORM_BASE_DIR" --region us-east-1 2>/dev/null || echo "Parameter nie istnieje"
+          aws ssm delete-parameter --name "/omnia/EC2_INSTANCE_ID" --region us-east-1 2>/dev/null && echo "  ✅ /omnia/EC2_INSTANCE_ID" || echo "  ℹ️  /omnia/EC2_INSTANCE_ID nie istnieje"
+          aws ssm delete-parameter --name "/omnia/AWS_REGION" --region us-east-1 2>/dev/null && echo "  ✅ /omnia/AWS_REGION" || echo "  ℹ️  /omnia/AWS_REGION nie istnieje"
+          aws ssm delete-parameter --name "/omnia/PLATFORM_NAME" --region us-east-1 2>/dev/null && echo "  ✅ /omnia/PLATFORM_NAME" || echo "  ℹ️  /omnia/PLATFORM_NAME nie istnieje"
+          aws ssm delete-parameter --name "/omnia/PLATFORM_BASE_DIR" --region us-east-1 2>/dev/null && echo "  ✅ /omnia/PLATFORM_BASE_DIR" || echo "  ℹ️  /omnia/PLATFORM_BASE_DIR nie istnieje"
+          aws ssm delete-parameter --name "/omnia/TFSTATE_BUCKET_SUFFIX" --region us-east-1 2>/dev/null && echo "  ✅ /omnia/TFSTATE_BUCKET_SUFFIX" || echo "  ℹ️  /omnia/TFSTATE_BUCKET_SUFFIX nie istnieje"
+          aws ssm delete-parameter --name "/omnia/TFSTATE_BUCKET_NAME" --region us-east-1 2>/dev/null && echo "  ✅ /omnia/TFSTATE_BUCKET_NAME" || echo "  ℹ️  /omnia/TFSTATE_BUCKET_NAME nie istnieje"
           
-          echo "✅ Parametry SSM skasowane"
+          echo ""
+          echo "✅ Parametry SSM usunięte"
 
       # =====================================================================
-      # KROK 9: Czyszczenie GitHub Variables (opcjonalnie)
+      # KROK 10: Czyszczenie GitHub Variables (informacja)
       # =====================================================================
-      - name: Czyszczenie GitHub Variables
+      - name: Informacja o GitHub Variables
         run: |
-          echo "::notice::GitHub Variables nie zostaly automatycznie usuniete."
-          echo "::notice::Mozesz je manualnie usunac w Settings > Variables and secrets > Actions"
+          echo "::notice::GitHub Variables nie zostały automatycznie usunięte."
+          echo "::notice::Możesz je manualnie usunąć w Settings > Variables and secrets > Actions"
 
       # =====================================================================
-      # KROK 10: Podsumowanie
+      # KROK 11: Podsumowanie
       # =====================================================================
       - name: Publikacja potwierdzenia zniszczenia
         if: always()
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+          TABLE_NAME: ${{ steps.suffix-gen.outputs.TABLE_NAME }}
         run: |
           echo "## ⚠️ Infrastruktura zniszczona" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Status | Wartosc |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|---------|" >> $GITHUB_STEP_SUMMARY
           echo "| Akcja | Usunięcie infrastruktury |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform Name | \`${{ env.PLATFORM_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Region | \`${{ env.AWS_REGION }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Wykonal | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| S3 Bucket | \`$BUCKET_NAME\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| DynamoDB Table | \`$TABLE_NAME\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Wykonał | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Czas | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Co zostalo usunięte:" >> $GITHUB_STEP_SUMMARY
+          echo "### Co zostało usunięte:" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Instancja EC2" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ VPC i Subnety" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Security Groups" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ IAM Role i Instance Profile" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ VPC Endpoints" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ EBS Volumes" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ S3 Bucket (razem z wszystkimi wersjonowanymi obiektami)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ DynamoDB Table (Terraform Lock)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ SSM Parameters" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> 💡 **GitHub Variables trzeba usunac manualnie** w Settings > Variables and secrets > Actions" >> $GITHUB_STEP_SUMMARY
+          echo "### Następne kroki:" >> $GITHUB_STEP_SUMMARY
+          echo "1. GitHub Variables można usunąć manualnie w Settings > Variables and secrets > Actions" >> $GITHUB_STEP_SUMMARY
+          echo "2. Aby stworzyć nową infrastrukturę, uruchom 'Utwórz Infrastrukturę'" >> $GITHUB_STEP_SUMMARY
+          echo "3. Możesz zmienić PLATFORM_NAME aby stworzyć niezależne resources" >> $GITHUB_STEP_SUMMARY
