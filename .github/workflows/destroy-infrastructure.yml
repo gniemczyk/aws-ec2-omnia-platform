@@ -42,7 +42,55 @@ jobs:
           exit 1
 
       # =====================================================================
-      # KROK 2: Generowanie SUFFIX i przygotowanie
+      # KROK 2: HEALTH CHECK - Weryfikacja infrastruktury
+      # =====================================================================
+      - name: Konfiguracja poswiadczen AWS (OIDC) - Health Check
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: github-actions-destroy-health-check
+
+      - name: HEALTH CHECK - Sprawdzenie SSM Parameters
+        id: health-check
+        run: |
+          echo "🏥 Sprawdzanie zdrowotności infrastruktury..."
+          echo ""
+          
+          # Sprawdzenie czy EC2_INSTANCE_ID istnieje w SSM
+          EC2_INSTANCE_ID=$(aws ssm get-parameter \
+            --name "/omnia/EC2_INSTANCE_ID" \
+            --region us-east-1 \
+            --query 'Parameter.Value' \
+            --output text 2>/dev/null || echo "")
+          
+          if [ -z "$EC2_INSTANCE_ID" ] || [ "$EC2_INSTANCE_ID" == "None" ]; then
+            echo "::error::❌ INFRASTRUKTURA NIE ISTNIEJE!"
+            echo "::error::"
+            echo "::error::SSM Parameter Store jest pusty - brak EC2_INSTANCE_ID"
+            echo "::error::"
+            echo "::error::📋 CO ROBIĆ:"
+            echo "::error::1️⃣  Najpierw uruchom workflow: 'Utwórz Infrastrukturę'"
+            echo "::error::    (będzie utworzony: S3, DynamoDB, EC2)"
+            echo "::error::"
+            echo "::error::2️⃣  Czekaj aż workflow się ukończy"
+            echo "::error::    (potrwa ~10-15 minut)"
+            echo "::error::"
+            echo "::error::3️⃣  Jeśli chcesz zniszczyć - uruchom znowu"
+            echo "::error::    (tym razem będzie co niszczyć)"
+            echo "::error::"
+            echo "::error::🔗 Linki do workflow'ów:"
+            echo "::error::   → https://github.com/${{ github.repository }}/actions"
+            exit 1
+          fi
+          
+          echo "✅ Infrastruktura istnieje!"
+          echo "   EC2_INSTANCE_ID: $EC2_INSTANCE_ID"
+          echo ""
+          echo "🔥 Przygotowuję zniszczenie..."
+
+      # =====================================================================
+      # KROK 3: Generowanie SUFFIX i przygotowanie
       # =====================================================================
       - name: Generowanie SUFFIX z PLATFORM_NAME
         id: suffix-gen
@@ -63,7 +111,7 @@ jobs:
           echo "  TABLE_NAME: ${PLATFORM_NAME}-tflock"
 
       # =====================================================================
-      # KROK 3: Ostrzezenie
+      # KROK 4: Ostrzezenie
       # =====================================================================
       - name: Ostrzezenie - weryfikacja zasobów
         env:
@@ -86,13 +134,13 @@ jobs:
           sleep 10
 
       # =====================================================================
-      # KROK 4: Pobranie repozytorium
+      # KROK 5: Pobranie repozytorium
       # =====================================================================
       - name: Pobranie repozytorium
         uses: actions/checkout@v4
 
       # =====================================================================
-      # KROK 5: Instalacja Terraform
+      # KROK 6: Instalacja Terraform
       # =====================================================================
       - name: Instalacja Terraform
         uses: hashicorp/setup-terraform@v3
@@ -100,7 +148,7 @@ jobs:
           terraform_version: ">= 1.5.0"
 
       # =====================================================================
-      # KROK 6: Uwierzytelnianie do AWS przez OIDC
+      # KROK 7: Uwierzytelnianie do AWS przez OIDC
       # =====================================================================
       - name: Konfiguracja poswiadczen AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -110,7 +158,7 @@ jobs:
           role-session-name: github-actions-destroy-infrastructure
 
       # =====================================================================
-      # KROK 7: Terraform destroy
+      # KROK 8: Terraform destroy
       # =====================================================================
       - name: Terraform destroy
         working-directory: terraform
@@ -128,7 +176,7 @@ jobs:
           echo "✅ Terraform destroy zakończony"
 
       # =====================================================================
-      # KROK 8: Czyszczenie S3 i DynamoDB
+      # KROK 9: Czyszczenie S3 i DynamoDB
       # =====================================================================
       - name: Czyszczenie S3 Bucket i DynamoDB Table
         env:
@@ -196,7 +244,7 @@ jobs:
           echo "✅ Backend resources całkowicie czyszcze"
 
       # =====================================================================
-      # KROK 9: Usunięcie parametrow SSM
+      # KROK 10: Usunięcie parametrow SSM
       # =====================================================================
       - name: Usunięcie parametrow SSM
         run: |
@@ -213,7 +261,7 @@ jobs:
           echo "✅ Parametry SSM usunięte"
 
       # =====================================================================
-      # KROK 10: Czyszczenie GitHub Variables (informacja)
+      # KROK 11: Czyszczenie GitHub Variables (informacja)
       # =====================================================================
       - name: Informacja o GitHub Variables
         run: |
@@ -221,7 +269,7 @@ jobs:
           echo "::notice::Możesz je manualnie usunąć w Settings > Variables and secrets > Actions"
 
       # =====================================================================
-      # KROK 11: Podsumowanie
+      # KROK 12: Podsumowanie
       # =====================================================================
       - name: Publikacja potwierdzenia zniszczenia
         if: always()

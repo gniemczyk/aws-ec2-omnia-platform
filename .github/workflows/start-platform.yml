@@ -27,7 +27,55 @@ jobs:
 
     steps:
       # =====================================================================
-      # KROK 0: Konfiguracja AWS i pobranie parametrow z SSM
+      # KROK 0: HEALTH CHECK - Weryfikacja infrastruktury
+      # =====================================================================
+      - name: Konfiguracja poswiadczen AWS (OIDC) - Health Check
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: github-actions-start-health-check
+
+      - name: HEALTH CHECK - Sprawdzenie SSM Parameters
+        id: health-check
+        run: |
+          echo "🏥 Sprawdzanie zdrowotności infrastruktury..."
+          echo ""
+          
+          # Sprawdzenie czy EC2_INSTANCE_ID istnieje w SSM
+          EC2_INSTANCE_ID=$(aws ssm get-parameter \
+            --name "/omnia/EC2_INSTANCE_ID" \
+            --region us-east-1 \
+            --query 'Parameter.Value' \
+            --output text 2>/dev/null || echo "")
+          
+          if [ -z "$EC2_INSTANCE_ID" ] || [ "$EC2_INSTANCE_ID" == "None" ]; then
+            echo "::error::❌ INFRASTRUKTURA NIE ISTNIEJE!"
+            echo "::error::"
+            echo "::error::SSM Parameter Store jest pusty - brak EC2_INSTANCE_ID"
+            echo "::error::"
+            echo "::error::📋 CO ROBIĆ:"
+            echo "::error::1️⃣  Najpierw uruchom workflow: 'Utwórz Infrastrukturę'"
+            echo "::error::    (będzie utworzony: S3, DynamoDB, EC2)"
+            echo "::error::"
+            echo "::error::2️⃣  Czekaj aż workflow się ukończy"
+            echo "::error::    (potrwa ~10-15 minut)"
+            echo "::error::"
+            echo "::error::3️⃣  Po sukcesie - uruchom workflow: 'Uruchom Platform'"
+            echo "::error::    (wtedy będziesz tutaj)"
+            echo "::error::"
+            echo "::error::🔗 Linki do workflow'ów:"
+            echo "::error::   → https://github.com/${{ github.repository }}/actions"
+            exit 1
+          fi
+          
+          echo "✅ Infrastruktura istnieje!"
+          echo "   EC2_INSTANCE_ID: $EC2_INSTANCE_ID"
+          echo ""
+          echo "🚀 Kontynuuję uruchamianie platformy..."
+
+      # =====================================================================
+      # KROK 1: Konfiguracja AWS i pobranie parametrow z SSM
       # =====================================================================
       - name: Konfiguracja poswiadczen AWS (OIDC) - wstepnie
         uses: aws-actions/configure-aws-credentials@v4
