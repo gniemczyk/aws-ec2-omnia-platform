@@ -367,9 +367,6 @@ resource "aws_instance" "platform" {
   # Brak klucza SSH - uzywamy wylacznie SSM
   key_name = null
 
-  # Globalny adres IPv6 (Egress-Only IGW)
-  ipv6_address_count = 1
-
   # Dysk glowny
   root_block_device {
     volume_type           = var.root_volume_type
