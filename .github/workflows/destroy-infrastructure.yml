@@ -50,69 +50,78 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: github-actions-destroy-health-check
 
-      - name: HEALTH CHECK - Sprawdzenie SSM Parameters
+      - name: Analiza stanu infrastruktury
         id: health-check
         run: |
-          echo "🏥 Sprawdzanie zdrowotności infrastruktury..."
+          echo "🏥 Analiza stanu infrastruktury..."
           echo ""
           
-          # Sprawdzenie czy EC2_INSTANCE_ID istnieje w SSM
+          PLATFORM_NAME="${{ env.PLATFORM_NAME }}"
+          SUFFIX=$(echo -n "$PLATFORM_NAME" | sha256sum | cut -c1-6)
+          BUCKET_NAME="${PLATFORM_NAME}-tfstate-${SUFFIX}"
+          
+          # --- Sprawdzenie SSM ---
           EC2_INSTANCE_ID=$(aws ssm get-parameter \
             --name "/omnia/EC2_INSTANCE_ID" \
             --region ${{ vars.AWS_REGION }} \
             --query 'Parameter.Value' \
             --output text 2>/dev/null || echo "")
           
-          if [ -z "$EC2_INSTANCE_ID" ] || [ "$EC2_INSTANCE_ID" == "None" ]; then
-            echo "::error::❌ INFRASTRUKTURA NIE ISTNIEJE!"
-            echo "::error::"
-            echo "::error::SSM Parameter Store jest pusty - brak EC2_INSTANCE_ID"
-            echo "::error::"
-            echo "::error::📋 CO ROBIĆ:"
-            echo "::error::1️⃣  Najpierw uruchom workflow: 'Utwórz Infrastrukturę'"
-            echo "::error::    (będzie utworzony: S3, EC2, VPC)"
-            echo "::error::"
-            echo "::error::2️⃣  Czekaj aż workflow się ukończy"
-            echo "::error::    (potrwa ~10-15 minut)"
-            echo "::error::"
-            echo "::error::3️⃣  Jeśli chcesz zniszczyć - uruchom znowu"
-            echo "::error::    (tym razem będzie co niszczyć)"
-            echo "::error::"
-            echo "::error::🔗 Linki do workflow'ów:"
-            echo "::error::   → https://github.com/${{ github.repository }}/actions"
-            exit 1
+          HAS_SSM="false"
+          if [ -n "$EC2_INSTANCE_ID" ] && [ "$EC2_INSTANCE_ID" != "None" ]; then
+            HAS_SSM="true"
+            echo "  ✅ SSM: EC2_INSTANCE_ID = $EC2_INSTANCE_ID"
+          else
+            echo "  ℹ️  SSM: brak EC2_INSTANCE_ID"
           fi
           
-          echo "✅ Infrastruktura istnieje!"
-          echo "   EC2_INSTANCE_ID: $EC2_INSTANCE_ID"
+          # --- Sprawdzenie S3 bucket ---
+          HAS_S3="false"
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" --region ${{ vars.AWS_REGION }} 2>/dev/null; then
+            HAS_S3="true"
+            echo "  ✅ S3: Bucket $BUCKET_NAME istnieje"
+          else
+            echo "  ℹ️  S3: Bucket $BUCKET_NAME nie istnieje"
+          fi
+          
+          # --- Decyzja ---
           echo ""
-          echo "🔥 Przygotowuję zniszczenie..."
+          echo "has_ssm=$HAS_SSM" >> $GITHUB_OUTPUT
+          echo "has_s3=$HAS_S3" >> $GITHUB_OUTPUT
+          echo "BUCKET_NAME=$BUCKET_NAME" >> $GITHUB_OUTPUT
+          echo "SUFFIX=$SUFFIX" >> $GITHUB_OUTPUT
+          
+          if [ "$HAS_SSM" == "false" ] && [ "$HAS_S3" == "false" ]; then
+            echo "ℹ️  Nic do zniszczenia - infrastruktura nie istnieje"
+            echo "destroy_needed=false" >> $GITHUB_OUTPUT
+          elif [ "$HAS_SSM" == "false" ] && [ "$HAS_S3" == "true" ]; then
+            echo "⚠️  Wykryto osierocony S3 bucket (brak SSM) - zostanie usunięty"
+            echo "destroy_needed=cleanup_only" >> $GITHUB_OUTPUT
+          else
+            echo "🔥 Pełna infrastruktura do zniszczenia"
+            echo "destroy_needed=full" >> $GITHUB_OUTPUT
+          fi
 
       # =====================================================================
-      # KROK 3: Generowanie SUFFIX i przygotowanie
+      # KROK 3: Wczesny exit jesli nic nie istnieje
       # =====================================================================
-      - name: Generowanie SUFFIX z PLATFORM_NAME
-        id: suffix-gen
+      - name: Sprawdzenie czy jest co niszczyc
+        if: steps.health-check.outputs.destroy_needed == 'false'
         run: |
-          PLATFORM_NAME="${{ env.PLATFORM_NAME }}"
-          
-          # Regenerowanie SUFFIX z SHA256(PLATFORM_NAME) - musi być identyczny!
-          SUFFIX=$(echo -n "$PLATFORM_NAME" | sha256sum | cut -c1-6)
-          
-          echo "SUFFIX=$SUFFIX" >> $GITHUB_OUTPUT
-          echo "BUCKET_NAME=${PLATFORM_NAME}-tfstate-${SUFFIX}" >> $GITHUB_OUTPUT
-          
-          echo "🔄 Regenerowanie identyfikatorów:"
-          echo "  PLATFORM_NAME: $PLATFORM_NAME"
-          echo "  SUFFIX (SHA256): $SUFFIX"
-          echo "  BUCKET_NAME: ${PLATFORM_NAME}-tfstate-${SUFFIX}"
+          echo "ℹ️  Infrastruktura nie istnieje - nic do zniszczenia."
+          echo "    Brak SSM parametrów i brak S3 bucketu."
+          echo ""
+          echo "## ℹ️ Nic do zniszczenia" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Infrastruktura nie istnieje. Brak zasobów do usunięcia." >> $GITHUB_STEP_SUMMARY
+          exit 1
 
       # =====================================================================
       # KROK 4: Ostrzezenie
       # =====================================================================
       - name: Ostrzezenie - weryfikacja zasobów
         env:
-          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+          BUCKET_NAME: ${{ steps.health-check.outputs.BUCKET_NAME }}
         run: |
           echo "::warning::OSTRZEZENIE: Za 10 sekund zostanie uruchomiona operacja niszczenia!"
           echo "::warning::❌ ZASOBY DO USUNIĘCIA:"
@@ -156,9 +165,10 @@ jobs:
       # KROK 8: Terraform destroy (z polaczeniem do backendu S3)
       # =====================================================================
       - name: Terraform destroy
+        if: steps.health-check.outputs.destroy_needed == 'full'
         working-directory: terraform
         env:
-          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+          BUCKET_NAME: ${{ steps.health-check.outputs.BUCKET_NAME }}
         run: |
           echo "🔥 Niszczenie infrastruktury Terraform..."
           
@@ -181,6 +191,7 @@ jobs:
       # KROK 9: Usunięcie parametrow SSM (tylko po udanym terraform destroy)
       # =====================================================================
       - name: Usunięcie parametrow SSM
+        if: steps.health-check.outputs.has_ssm == 'true'
         run: |
           echo "🗑️  Usuwanie parametrów SSM Parameter Store..."
           
@@ -201,8 +212,9 @@ jobs:
       # - Zawiera terraform.tfstate potrzebny do retry jesli cos failnie
       # - Jesli terraform destroy + SSM cleanup sie udaly = bezpiecznie usunac
       - name: Czyszczenie S3 Bucket
+        if: steps.health-check.outputs.has_s3 == 'true'
         env:
-          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+          BUCKET_NAME: ${{ steps.health-check.outputs.BUCKET_NAME }}
         run: |
           echo "🧹 Czyszczenie S3 Bucket: $BUCKET_NAME (ostatni krok)"
           echo ""
@@ -258,7 +270,7 @@ jobs:
       - name: Publikacja potwierdzenia zniszczenia
         if: always()
         env:
-          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+          BUCKET_NAME: ${{ steps.health-check.outputs.BUCKET_NAME }}
         run: |
           echo "## ⚠️ Infrastruktura zniszczona" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
