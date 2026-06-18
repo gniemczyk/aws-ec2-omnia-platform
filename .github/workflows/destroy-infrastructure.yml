@@ -153,18 +153,25 @@ jobs:
           role-session-name: github-actions-destroy-infrastructure
 
       # =====================================================================
-      # KROK 8: Terraform destroy
+      # KROK 8: Terraform destroy (z polaczeniem do backendu S3)
       # =====================================================================
       - name: Terraform destroy
         working-directory: terraform
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
         run: |
           echo "🔥 Niszczenie infrastruktury Terraform..."
-          terraform init -no-color -backend=false -reconfigure
+          
+          # Init Z backendem S3 - terraform musi odczytac state zeby wiedziec co zniszczyc
+          terraform init -no-color -reconfigure \
+            -backend-config="bucket=$BUCKET_NAME" \
+            -backend-config="key=terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="use_lockfile=true"
           
           terraform destroy \
             -var="aws_region=${{ env.AWS_REGION }}" \
             -var="project_name=${{ env.PLATFORM_NAME }}" \
-            -lock=false \
             -no-color \
             -auto-approve
           
