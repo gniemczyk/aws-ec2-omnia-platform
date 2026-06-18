@@ -2,16 +2,6 @@
 # Wyjscia Terraform - Uzywane przez GitHub Actions i Ansible
 # =============================================================================
 
-output "available_azs_all" {
-  description = "Wszystkie dostepne strefy AZ w regionie"
-  value       = data.aws_availability_zones.available.names
-}
-
-output "azs_with_instance_type" {
-  description = "Wszystkie dostepne strefy AZ w regionie"
-  value       = data.aws_availability_zones.available.names
-}
-
 output "selected_az_failover_info" {
   description = "Informacja o wyborze AZ"
   value       = "AZ '${aws_instance.platform.availability_zone}' (preferred_az_index: ${var.preferred_az_index})"

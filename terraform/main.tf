@@ -121,7 +121,7 @@ resource "aws_vpc" "platform" {
   }
 }
 
-# Internet Gateway - wymagany do routingu IPv6
+# Internet Gateway - wymagany dla VPC Endpoints (Interface) oraz routingu IPv4
 resource "aws_internet_gateway" "platform" {
   vpc_id = aws_vpc.platform.id
 
@@ -164,7 +164,7 @@ resource "aws_subnet" "platform" {
 resource "aws_route_table" "platform" {
   vpc_id = aws_vpc.platform.id
 
-  # Trasa IPv4 przez IGW (lacznosc z VPC Endpoints)
+  # Trasa IPv4 przez IGW (instancja bez publicznego IP - dziala tylko dla VPC Endpoints)
   route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.platform.id
@@ -422,6 +422,21 @@ resource "aws_instance" "platform" {
       systemctl status amazon-ssm-agent || true
       journalctl -u amazon-ssm-agent --no-pager -n 20 || true
     fi
+
+    # Konfiguracja dual-stack dla IPv6 (SSM przez Egress-Only IGW zamiast VPC Endpoints)
+    echo "Konfiguracja UseDualStackEndpoint dla IPv6..."
+    mkdir -p /etc/amazon/ssm
+    cat > /etc/amazon/ssm/amazon-ssm-agent.json << 'SSM_CFG'
+{
+  "Agent": {
+    "Region": "${var.aws_region}",
+    "UseDualStackEndpoint": true
+  }
+}
+SSM_CFG
+    systemctl restart amazon-ssm-agent || true
+    sleep 2
+    echo "SSM Agent skonfigurowany dla dual-stack IPv6"
 
     echo "SSM_READY" > /tmp/instance-ready
     echo "=== User Data End: $(date) ==="

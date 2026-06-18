@@ -64,9 +64,9 @@ variable "environment" {
 }
 
 variable "enable_vpc_endpoints" {
-  description = "Czy tworzyc VPC Endpoints dla SSM (wymagane bez publicznego IPv4)"
+  description = "Czy tworzyc Interface VPC Endpoints dla SSM. Gdy false, SSM dziala przez IPv6 (UseDualStackEndpoint) + Egress-Only IGW. S3 Gateway Endpoint (darmowy) jest zawsze tworzony."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "additional_tags" {
