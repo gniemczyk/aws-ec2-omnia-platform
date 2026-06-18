@@ -367,6 +367,9 @@ resource "aws_instance" "platform" {
   # Brak klucza SSH - uzywamy wylacznie SSM
   key_name = null
 
+  # Globalny adres IPv6 (Egress-Only IGW)
+  ipv6_address_count = 1
+
   # Dysk glowny
   root_block_device {
     volume_type           = var.root_volume_type
@@ -383,16 +386,10 @@ resource "aws_instance" "platform" {
 exec > /var/log/user-data.log 2>&1
 echo "=== User Data Start: $(date) ==="
 
-# Czekanie na siec (S3 Gateway Endpoint lub IPv6)
-echo "Czekanie na dostepnosc sieci..."
-for i in $(seq 1 30); do
-  if curl -s --max-time 5 -o /dev/null "https://s3.${var.aws_region}.amazonaws.com" 2>/dev/null; then
-    echo "Siec dostepna (proba $i)"
-    break
-  fi
-  echo "Proba $i/30 - brak sieci, czekam 5s..."
-  sleep 5
-done
+# Konfiguracja dual-stack IPv6 (PRZED instalacja agenta - zeby agent od razu uzywal IPv6)
+echo "Konfiguracja UseDualStackEndpoint dla IPv6..."
+mkdir -p /etc/amazon/ssm
+printf '{\n  "Agent": {\n    "UseDualStackEndpoint": true\n  }\n}\n' > /etc/amazon/ssm/amazon-ssm-agent.json
 
 # Instalacja SSM Agent z S3 (przez Gateway Endpoint - darmowy IPv4)
 echo "Instalacja SSM Agent..."
@@ -408,14 +405,8 @@ curl -fsSL "https://amazon-ssm-${var.aws_region}.s3.dualstack.${var.aws_region}.
 dpkg -i "$SSM_DEB"
 rm -f "$SSM_DEB"
 
-# Konfiguracja dual-stack IPv6 (przed startem agenta)
-echo "Konfiguracja UseDualStackEndpoint dla IPv6..."
-mkdir -p /etc/amazon/ssm
-printf '{\n  "Agent": {\n    "Region": "%s",\n    "UseDualStackEndpoint": true\n  }\n}\n' "${var.aws_region}" > /etc/amazon/ssm/amazon-ssm-agent.json
-
-# Uruchomienie SSM Agent
-systemctl enable amazon-ssm-agent
-systemctl start amazon-ssm-agent
+# Wymus restart (na wypadek gdyby dpkg juz wystartowal agenta przed zapisem configu)
+systemctl restart amazon-ssm-agent
 
 sleep 3
 if systemctl is-active --quiet amazon-ssm-agent; then
