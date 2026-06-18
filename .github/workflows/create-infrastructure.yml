@@ -93,91 +93,193 @@ jobs:
           role-session-name: github-actions-create-infrastructure
 
       # =====================================================================
-      # KROK 4: Generowanie SUFFIX z PLATFORM_NAME + Walidacja
+      # KROK 4: Generowanie SUFFIX z PLATFORM_NAME + Walidacja stanu
       # =====================================================================
-      - name: Generowanie SUFFIX i sprawdzenie konfliktu
+      - name: Generowanie SUFFIX i walidacja stanu infrastruktury
         id: suffix-gen
         run: |
           PLATFORM_NAME="${{ env.PLATFORM_NAME }}"
           
           # Generowanie SUFFIX z SHA256(PLATFORM_NAME)
           SUFFIX=$(echo -n "$PLATFORM_NAME" | sha256sum | cut -c1-6)
+          BUCKET_NAME="${PLATFORM_NAME}-tfstate-${SUFFIX}"
+          TABLE_NAME="${PLATFORM_NAME}-tflock"
           
           echo "SUFFIX=$SUFFIX" >> $GITHUB_OUTPUT
-          echo "BUCKET_NAME=${PLATFORM_NAME}-tfstate-${SUFFIX}" >> $GITHUB_OUTPUT
-          echo "TABLE_NAME=${PLATFORM_NAME}-tflock" >> $GITHUB_OUTPUT
+          echo "BUCKET_NAME=$BUCKET_NAME" >> $GITHUB_OUTPUT
+          echo "TABLE_NAME=$TABLE_NAME" >> $GITHUB_OUTPUT
           
           # Komunikacja
           echo "📊 Generowanie identyfikatora:"
           echo "  PLATFORM_NAME: $PLATFORM_NAME"
           echo "  SUFFIX (SHA256): $SUFFIX"
-          echo "  BUCKET_NAME: ${PLATFORM_NAME}-tfstate-${SUFFIX}"
-          echo "  TABLE_NAME: ${PLATFORM_NAME}-tflock"
+          echo "  BUCKET_NAME: $BUCKET_NAME"
+          echo "  TABLE_NAME: $TABLE_NAME"
           
           # ============================================================
-          # WALIDACJA: Czy bucket już istnieje?
+          # WALIDACJA STANU INFRASTRUKTURY
+          # Scenariusze:
+          #   A) Bucket nie istnieje → czysty start (tworz wszystko)
+          #   B) Bucket istnieje + terraform.tfstate z zasobami → BLOKUJ
+          #      (infrastruktura juz wdrozona - uzytkownik powinien uzyc start/stop)
+          #   C) Bucket istnieje + brak tfstate LUB pusty tfstate → 
+          #      smieci z poprzedniego nieudanego runa → wyczysc i kontynuuj
           # ============================================================
           echo ""
-          echo "🔍 Sprawdzenie czy infrastruktura już istnieje..."
+          echo "🔍 Analiza stanu infrastruktury..."
           
-          BUCKET_EXISTS=$(aws s3 ls "s3://${PLATFORM_NAME}-tfstate-${SUFFIX}" --region ${{ env.AWS_REGION }} 2>&1 || echo "")
+          # --- Sprawdzenie czy bucket istnieje ---
+          if ! aws s3api head-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "✅ Scenariusz A: Bucket nie istnieje - czysty start"
+            echo "INFRA_STATE=fresh" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           
-          if [[ "$BUCKET_EXISTS" == *"NoSuchBucket"* ]] || [[ -z "$BUCKET_EXISTS" ]]; then
-            echo "✅ Bucket nie istnieje - można tworzyć infrastrukturę"
-          else
-            echo "::error::❌ KONFLIKT! Infrastruktura już istnieje!"
-            echo "::error::Bucket: ${PLATFORM_NAME}-tfstate-${SUFFIX}"
+          echo "  ℹ️  Bucket $BUCKET_NAME istnieje"
+          
+          # --- Sprawdzenie czy terraform.tfstate istnieje w buckecie ---
+          if ! aws s3api head-object --bucket "$BUCKET_NAME" --key "terraform.tfstate" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "  ℹ️  Brak terraform.tfstate w buckecie"
+            echo "✅ Scenariusz C: Smieci z poprzedniego nieudanego runa"
+            echo "   → Backend istnieje ale terraform apply nigdy sie nie udal"
+            echo "   → Kontynuuje tworzenie (bucket zostanie ponownie wykorzystany)"
+            echo "INFRA_STATE=stale" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "  ℹ️  terraform.tfstate znaleziony - sprawdzam zawartosc..."
+          
+          # --- Pobranie i analiza terraform.tfstate ---
+          TFSTATE=$(aws s3 cp "s3://$BUCKET_NAME/terraform.tfstate" - --region ${{ env.AWS_REGION }} 2>/dev/null || echo "{}")
+          
+          # Sprawdzenie czy state ma realne zasoby (resources array nie jest pusty)
+          RESOURCE_COUNT=$(echo "$TFSTATE" | jq -r '.resources | length // 0' 2>/dev/null || echo "0")
+          
+          echo "  ℹ️  Liczba zasobów w terraform.tfstate: $RESOURCE_COUNT"
+          
+          if [ "$RESOURCE_COUNT" -gt 0 ]; then
+            # --- SCENARIUSZ B: Infrastruktura istnieje! ---
             echo ""
-            echo "::error::Aby kontynuować, wybierz jedną z opcji:"
-            echo "::error::1️⃣  Jeśli chcesz zniszczyć istniejącą infrastrukturę:"
-            echo "::error::    - Uruchom workflow 'Zniszcz Infrastrukturę'"
-            echo "::error::2️⃣  Jeśli chcesz stworzyć nową platformę:"
-            echo "::error::    - Zmień PLATFORM_NAME na GitHub Variables"
-            echo "::error::    - Nowy PLATFORM_NAME = nowy SUFFIX = nowe resources"
+            echo "::error::❌ INFRASTRUKTURA JUŻ ISTNIEJE!"
+            echo "::error::"
+            echo "::error::Terraform state zawiera $RESOURCE_COUNT zasobów."
+            echo "::error::Tworzenie infrastruktury jest niemożliwe - zasoby są już wdrożone."
+            echo "::error::"
+            echo "::error::📋 CO ROBIĆ:"
+            echo "::error::  → Uruchomić platformę: workflow 'Uruchom Platform'"
+            echo "::error::  → Zatrzymać platformę: workflow 'Zatrzymaj Platform'"  
+            echo "::error::  → Zniszczyć wszystko: workflow 'Zniszcz Infrastrukturę'"
+            echo ""
+            
+            # Pokaz jakie zasoby istnieja
+            echo "📦 Istniejące zasoby:"
+            echo "$TFSTATE" | jq -r '.resources[] | "  - \(.type).\(.name)"' 2>/dev/null || true
+            
+            echo ""
+            echo "## ℹ️ Infrastruktura już istnieje" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Terraform state zawiera **$RESOURCE_COUNT zasobów**." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Dostępne akcje:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Uruchomić platformę** → workflow \`Uruchom Platform\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Zatrzymać platformę** → workflow \`Zatrzymaj Platform\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Zniszczyć i stworzyć od nowa** → workflow \`Zniszcz Infrastrukturę\`, potem \`Utwórz Infrastrukturę\`" >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
+          
+          # --- SCENARIUSZ C: Pusty tfstate (apply sie uruchomil ale nic nie stworzyl) ---
+          echo "✅ Scenariusz C: terraform.tfstate istnieje ale jest pusty (0 zasobów)"
+          echo "   → Poprzedni run nie stworzył żadnych zasobów"
+          echo "   → Kontynuuje tworzenie infrastruktury"
+          echo "INFRA_STATE=stale" >> $GITHUB_OUTPUT
 
       # =====================================================================
-      # KROK 5: Bootstrap Backend (S3 + DynamoDB)
+      # KROK 5: Bootstrap Backend (S3 + DynamoDB) - IDEMPOTENTNY
       # =====================================================================
       - name: Bootstrap Backend
         env:
           BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
           TABLE_NAME: ${{ steps.suffix-gen.outputs.TABLE_NAME }}
           SUFFIX: ${{ steps.suffix-gen.outputs.SUFFIX }}
+          INFRA_STATE: ${{ steps.suffix-gen.outputs.INFRA_STATE }}
         run: |
-          echo "📦 Tworzenie zasobów Backend (S3 + DynamoDB)..."
+          echo "📦 Tworzenie/weryfikacja zasobów Backend (S3 + DynamoDB)..."
           
-          # Utworzenie bucketu S3 z retry (po usunieciu bucketu AWS potrzebuje czasu na zwolnienie nazwy)
-          echo ""
-          echo "🪣 Tworzenie bucketu S3: $BUCKET_NAME"
-          MAX_RETRIES=10
-          RETRY_DELAY=15
-          for i in $(seq 1 $MAX_RETRIES); do
-            if aws s3api create-bucket \
-              --bucket "$BUCKET_NAME" \
-              --region ${{ env.AWS_REGION }} \
-              --create-bucket-configuration LocationConstraint=${{ env.AWS_REGION }} 2>&1; then
-              echo "✅ Bucket utworzony pomyślnie"
-              break
-            else
-              if [ "$i" -eq "$MAX_RETRIES" ]; then
-                echo "::error::Nie udało się utworzyć bucketu po $MAX_RETRIES próbach"
-                exit 1
+          # ==============================================================
+          # Czyszczenie stanu po nieudanym runie (jesli INFRA_STATE=stale)
+          # ==============================================================
+          if [ "$INFRA_STATE" == "stale" ]; then
+            echo ""
+            echo "🧹 Wykryto pozostałości z poprzedniego nieudanego runa - czyszczenie..."
+            
+            # Usun stary pusty terraform.tfstate (jesli istnieje) - terraform stworzy nowy
+            aws s3 rm "s3://$BUCKET_NAME/terraform.tfstate" --region ${{ env.AWS_REGION }} 2>/dev/null || true
+            aws s3 rm "s3://$BUCKET_NAME/.terraform.lock.hcl" --region ${{ env.AWS_REGION }} 2>/dev/null || true
+            
+            # Usun stare locki z DynamoDB (moga blokowac terraform)
+            if aws dynamodb describe-table --table-name "$TABLE_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+              echo "  🔓 Czyszczenie starych locków z DynamoDB..."
+              LOCK_ITEMS=$(aws dynamodb scan \
+                --table-name "$TABLE_NAME" \
+                --region ${{ env.AWS_REGION }} \
+                --query 'Items[].LockID.S' \
+                --output text 2>/dev/null || echo "")
+              
+              if [ -n "$LOCK_ITEMS" ] && [ "$LOCK_ITEMS" != "None" ]; then
+                for LOCK_ID in $LOCK_ITEMS; do
+                  echo "    Usuwanie locka: $LOCK_ID"
+                  aws dynamodb delete-item \
+                    --table-name "$TABLE_NAME" \
+                    --key "{\"LockID\": {\"S\": \"$LOCK_ID\"}}" \
+                    --region ${{ env.AWS_REGION }} 2>/dev/null || true
+                done
+                echo "  ✅ Stare locki usunięte"
+              else
+                echo "  ℹ️  Brak starych locków"
               fi
-              echo "  ⏳ Próba $i/$MAX_RETRIES - bucket niedostępny (AWS zwalnia nazwę), czekam ${RETRY_DELAY}s..."
-              sleep $RETRY_DELAY
             fi
-          done
+            
+            echo "✅ Czyszczenie zakończone"
+            echo ""
+          fi
           
-          # Włączenie wersjonowania dla bucket'a
+          # ==============================================================
+          # S3 BUCKET (idempotentny - obsluguje retry po blednym runie)
+          # ==============================================================
+          echo "🪣 Sprawdzanie/tworzenie bucketu S3: $BUCKET_NAME"
+          
+          # Sprawdzenie czy bucket juz istnieje (np. z poprzedniego nieudanego runu)
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "ℹ️  Bucket $BUCKET_NAME już istnieje - pomijam tworzenie"
+          else
+            echo "🪣 Tworzenie bucketu S3: $BUCKET_NAME"
+            MAX_RETRIES=10
+            RETRY_DELAY=15
+            for i in $(seq 1 $MAX_RETRIES); do
+              if aws s3api create-bucket \
+                --bucket "$BUCKET_NAME" \
+                --region ${{ env.AWS_REGION }} \
+                --create-bucket-configuration LocationConstraint=${{ env.AWS_REGION }} 2>&1; then
+                echo "✅ Bucket utworzony pomyślnie"
+                break
+              else
+                if [ "$i" -eq "$MAX_RETRIES" ]; then
+                  echo "::error::Nie udało się utworzyć bucketu po $MAX_RETRIES próbach"
+                  exit 1
+                fi
+                echo "  ⏳ Próba $i/$MAX_RETRIES - bucket niedostępny (AWS zwalnia nazwę), czekam ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
+              fi
+            done
+          fi
+          
+          # Konfiguracja bucketa (idempotentne operacje - bezpieczne do ponownego uruchomienia)
           echo "📝 Włączanie wersjonowania..."
           aws s3api put-bucket-versioning \
             --bucket "$BUCKET_NAME" \
             --versioning-configuration Status=Enabled \
             --region ${{ env.AWS_REGION }}
           
-          # Blokowanie public access (security best practice)
           echo "🔒 Blokowanie public access..."
           aws s3api put-public-access-block \
             --bucket "$BUCKET_NAME" \
@@ -185,7 +287,6 @@ jobs:
             "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" \
             --region ${{ env.AWS_REGION }}
           
-          # Szyfrowanie domyślne (AES-256)
           echo "🔐 Włączanie szyfrowania..."
           aws s3api put-bucket-encryption \
             --bucket "$BUCKET_NAME" \
@@ -198,19 +299,94 @@ jobs:
             }' \
             --region ${{ env.AWS_REGION }}
 
-          # Utworzenie tabeli DynamoDB
+          # ==============================================================
+          # DYNAMODB TABLE (idempotentny - obsluguje retry po blednym runie)
+          # ==============================================================
           echo ""
-          echo "🗄️  Tworzenie tabeli DynamoDB: $TABLE_NAME"
-          aws dynamodb create-table \
+          echo "🗄️  Sprawdzanie/tworzenie tabeli DynamoDB: $TABLE_NAME"
+          
+          # Sprawdzenie czy tabela juz istnieje
+          TABLE_STATUS=$(aws dynamodb describe-table \
             --table-name "$TABLE_NAME" \
-            --attribute-definitions AttributeName=LockID,AttributeType=S \
-            --key-schema AttributeName=LockID,KeyType=HASH \
-            --billing-mode PAY_PER_REQUEST \
             --region ${{ env.AWS_REGION }} \
-            --tags Key=Project,Value=${{ env.PLATFORM_NAME }} Key=ManagedBy,Value=terraform
+            --query 'Table.TableStatus' \
+            --output text 2>/dev/null || echo "NOT_FOUND")
+          
+          if [ "$TABLE_STATUS" == "ACTIVE" ]; then
+            echo "ℹ️  Tabela $TABLE_NAME już istnieje (status: ACTIVE) - pomijam tworzenie"
+          elif [ "$TABLE_STATUS" == "CREATING" ]; then
+            echo "⏳ Tabela $TABLE_NAME jest w trakcie tworzenia - czekam na ACTIVE..."
+            aws dynamodb wait table-exists \
+              --table-name "$TABLE_NAME" \
+              --region ${{ env.AWS_REGION }}
+            echo "✅ Tabela gotowa"
+          else
+            echo "🗄️  Tworzenie tabeli DynamoDB: $TABLE_NAME"
+            aws dynamodb create-table \
+              --table-name "$TABLE_NAME" \
+              --attribute-definitions AttributeName=LockID,AttributeType=S \
+              --key-schema AttributeName=LockID,KeyType=HASH \
+              --billing-mode PAY_PER_REQUEST \
+              --region ${{ env.AWS_REGION }} \
+              --tags Key=Project,Value=${{ env.PLATFORM_NAME }} Key=ManagedBy,Value=terraform
+            
+            echo "⏳ Czekanie na aktywację tabeli..."
+            aws dynamodb wait table-exists \
+              --table-name "$TABLE_NAME" \
+              --region ${{ env.AWS_REGION }}
+            echo "✅ Tabela DynamoDB gotowa"
+          fi
           
           echo ""
-          echo "✅ Backend resources utworzone pomyślnie!"
+          echo "✅ Backend resources gotowe!"
+
+      # =====================================================================
+      # KROK 5.5: Weryfikacja dostepnosci S3 bucket (eventual consistency)
+      # =====================================================================
+      - name: Weryfikacja dostepnosci S3 bucket
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+        run: |
+          echo "⏳ Weryfikacja dostępności bucketu S3: $BUCKET_NAME"
+          echo "   (AWS S3 eventual consistency - bucket może nie być od razu dostępny)"
+          echo ""
+          
+          MAX_RETRIES=12
+          RETRY_DELAY=10
+          
+          for i in $(seq 1 $MAX_RETRIES); do
+            if aws s3api head-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+              echo "✅ Bucket $BUCKET_NAME jest dostępny (próba $i/$MAX_RETRIES)"
+              break
+            else
+              if [ "$i" -eq "$MAX_RETRIES" ]; then
+                echo "::error::❌ Bucket $BUCKET_NAME nie jest dostępny po $MAX_RETRIES próbach ($(( MAX_RETRIES * RETRY_DELAY ))s)"
+                echo "::error::AWS S3 eventual consistency - spróbuj ponownie za minutę"
+                exit 1
+              fi
+              echo "  ⏳ Próba $i/$MAX_RETRIES - bucket niedostępny, czekam ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+            fi
+          done
+          
+          # Dodatkowa weryfikacja - ListObjectsV2 (ta sama operacja ktora uzywa Terraform)
+          echo ""
+          echo "🔍 Weryfikacja operacji ListObjectsV2..."
+          if aws s3api list-objects-v2 --bucket "$BUCKET_NAME" --max-keys 1 --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "✅ ListObjectsV2 działa poprawnie"
+          else
+            echo "⏳ ListObjectsV2 jeszcze niedostępny - czekam dodatkowe 15s..."
+            sleep 15
+            if aws s3api list-objects-v2 --bucket "$BUCKET_NAME" --max-keys 1 --region ${{ env.AWS_REGION }} 2>/dev/null; then
+              echo "✅ ListObjectsV2 działa poprawnie"
+            else
+              echo "::error::❌ ListObjectsV2 nadal nie działa - bucket może wymagać więcej czasu"
+              exit 1
+            fi
+          fi
+          
+          echo ""
+          echo "✅ Bucket S3 w pełni dostępny - kontynuowanie..."
 
       # =====================================================================
       # KROK 6: Terraform init
