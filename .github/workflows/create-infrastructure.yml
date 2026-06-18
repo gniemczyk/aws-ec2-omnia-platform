@@ -17,11 +17,6 @@ permissions:
   id-token: write
   contents: read
 
-env:
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  PLATFORM_NAME: ${{ vars.PLATFORM_NAME }}
-  AUTO_APPROVE: true
-
 jobs:
   create-infrastructure:
     name: "Tworzenie infrastruktury Terraform"
