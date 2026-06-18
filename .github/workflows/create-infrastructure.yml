@@ -148,10 +148,27 @@ jobs:
         run: |
           echo "📦 Tworzenie zasobów Backend (S3 + DynamoDB)..."
           
-          # Utworzenie bucketu S3
+          # Utworzenie bucketu S3 z retry (po usunieciu bucketu AWS potrzebuje czasu na zwolnienie nazwy)
           echo ""
           echo "🪣 Tworzenie bucketu S3: $BUCKET_NAME"
-          aws s3 mb "s3://$BUCKET_NAME" --region ${{ env.AWS_REGION }}
+          MAX_RETRIES=10
+          RETRY_DELAY=15
+          for i in $(seq 1 $MAX_RETRIES); do
+            if aws s3api create-bucket \
+              --bucket "$BUCKET_NAME" \
+              --region ${{ env.AWS_REGION }} \
+              --create-bucket-configuration LocationConstraint=${{ env.AWS_REGION }} 2>&1; then
+              echo "✅ Bucket utworzony pomyślnie"
+              break
+            else
+              if [ "$i" -eq "$MAX_RETRIES" ]; then
+                echo "::error::Nie udało się utworzyć bucketu po $MAX_RETRIES próbach"
+                exit 1
+              fi
+              echo "  ⏳ Próba $i/$MAX_RETRIES - bucket niedostępny (AWS zwalnia nazwę), czekam ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+            fi
+          done
           
           # Włączenie wersjonowania dla bucket'a
           echo "📝 Włączanie wersjonowania..."
