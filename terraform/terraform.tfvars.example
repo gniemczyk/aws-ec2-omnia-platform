@@ -38,9 +38,5 @@ preferred_az_index = 0
 # Srodowisko
 environment = "platform"
 
-# VPC Endpoints dla SSM (Interface). Gdy false, SSM dziala przez IPv6 + UseDualStackEndpoint.
-# S3 Gateway Endpoint (darmowy) jest zawsze tworzony.
-enable_vpc_endpoints = false
-
 # Dodatkowe tagi (opcjonalne)
 additional_tags = {}

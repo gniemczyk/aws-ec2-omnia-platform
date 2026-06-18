@@ -63,12 +63,6 @@ variable "environment" {
   default     = "platform"
 }
 
-variable "enable_vpc_endpoints" {
-  description = "Czy tworzyc Interface VPC Endpoints dla SSM. Gdy false, SSM dziala przez IPv6 (UseDualStackEndpoint) + Egress-Only IGW. S3 Gateway Endpoint (darmowy) jest zawsze tworzony."
-  type        = bool
-  default     = false
-}
-
 variable "additional_tags" {
   description = "Dodatkowe tagi do zastosowania na wszystkich zasobach"
   type        = map(string)
