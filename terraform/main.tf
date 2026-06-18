@@ -379,63 +379,56 @@ resource "aws_instance" "platform" {
   # SSM Agent pobierany z S3 (przez VPC Gateway Endpoint - darmowy)
   # UseDualStackEndpoint umozliwia komunikacje przez IPv6 + Egress-Only IGW
   user_data = base64encode(<<-EOF
-    #!/bin/bash
-    exec > /var/log/user-data.log 2>&1
-    echo "=== User Data Start: $(date) ==="
+#!/bin/bash
+exec > /var/log/user-data.log 2>&1
+echo "=== User Data Start: $(date) ==="
 
-    # Czekanie na siec (S3 Gateway Endpoint lub IPv6)
-    echo "Czekanie na dostepnosc sieci..."
-    for i in $(seq 1 30); do
-      if curl -s --max-time 5 -o /dev/null "https://s3.${var.aws_region}.amazonaws.com" 2>/dev/null; then
-        echo "Siec dostepna (proba $i)"
-        break
-      fi
-      echo "Proba $i/30 - brak sieci, czekam 5s..."
-      sleep 5
-    done
+# Czekanie na siec (S3 Gateway Endpoint lub IPv6)
+echo "Czekanie na dostepnosc sieci..."
+for i in $(seq 1 30); do
+  if curl -s --max-time 5 -o /dev/null "https://s3.${var.aws_region}.amazonaws.com" 2>/dev/null; then
+    echo "Siec dostepna (proba $i)"
+    break
+  fi
+  echo "Proba $i/30 - brak sieci, czekam 5s..."
+  sleep 5
+done
 
-    # Instalacja SSM Agent z S3 (przez Gateway Endpoint - darmowy IPv4)
-    echo "Instalacja SSM Agent..."
-    apt-get update -y
-    apt-get install -y curl
+# Instalacja SSM Agent z S3 (przez Gateway Endpoint - darmowy IPv4)
+echo "Instalacja SSM Agent..."
+apt-get update -y
+apt-get install -y curl
 
-    SSM_DEB="/tmp/amazon-ssm-agent.deb"
-    curl -fsSL "https://s3.${var.aws_region}.amazonaws.com/amazon-ssm-${var.aws_region}/latest/debian_arm64/amazon-ssm-agent.deb" \
-      -o "$SSM_DEB" || \
-    curl -fsSL "https://amazon-ssm-${var.aws_region}.s3.dualstack.${var.aws_region}.amazonaws.com/latest/debian_arm64/amazon-ssm-agent.deb" \
-      -o "$SSM_DEB"
+SSM_DEB="/tmp/amazon-ssm-agent.deb"
+curl -fsSL "https://s3.${var.aws_region}.amazonaws.com/amazon-ssm-${var.aws_region}/latest/debian_arm64/amazon-ssm-agent.deb" \
+  -o "$SSM_DEB" || \
+curl -fsSL "https://amazon-ssm-${var.aws_region}.s3.dualstack.${var.aws_region}.amazonaws.com/latest/debian_arm64/amazon-ssm-agent.deb" \
+  -o "$SSM_DEB"
 
-    dpkg -i "$SSM_DEB"
-    rm -f "$SSM_DEB"
+dpkg -i "$SSM_DEB"
+rm -f "$SSM_DEB"
 
-    # Konfiguracja dual-stack IPv6 (przed startem agenta)
-    echo "Konfiguracja UseDualStackEndpoint dla IPv6..."
-    mkdir -p /etc/amazon/ssm
-    cat > /etc/amazon/ssm/amazon-ssm-agent.json << 'SSM_CFG'
-{
-  "Agent": {
-    "Region": "${var.aws_region}",
-    "UseDualStackEndpoint": true
-  }
-}
-SSM_CFG
+# Konfiguracja dual-stack IPv6 (przed startem agenta)
+echo "Konfiguracja UseDualStackEndpoint dla IPv6..."
+mkdir -p /etc/amazon/ssm
+printf '{\n  "Agent": {\n    "Region": "%s",\n    "UseDualStackEndpoint": true\n  }\n}\n' "${var.aws_region}" > /etc/amazon/ssm/amazon-ssm-agent.json
 
-    # Uruchomienie SSM Agent
-    systemctl enable amazon-ssm-agent
-    systemctl start amazon-ssm-agent
+# Uruchomienie SSM Agent
+systemctl enable amazon-ssm-agent
+systemctl start amazon-ssm-agent
 
-    sleep 3
-    if systemctl is-active --quiet amazon-ssm-agent; then
-      echo "SSM Agent dziala poprawnie (IPv6 dual-stack)"
-    else
-      echo "BLAD: SSM Agent nie uruchomil sie!"
-      systemctl status amazon-ssm-agent || true
-      journalctl -u amazon-ssm-agent --no-pager -n 20 || true
-    fi
+sleep 3
+if systemctl is-active --quiet amazon-ssm-agent; then
+  echo "SSM Agent dziala poprawnie (IPv6 dual-stack)"
+else
+  echo "BLAD: SSM Agent nie uruchomil sie!"
+  systemctl status amazon-ssm-agent || true
+  journalctl -u amazon-ssm-agent --no-pager -n 20 || true
+fi
 
-    echo "SSM_READY" > /tmp/instance-ready
-    echo "=== User Data End: $(date) ==="
-  EOF
+echo "SSM_READY" > /tmp/instance-ready
+echo "=== User Data End: $(date) ==="
+EOF
   )
 
   metadata_options {
