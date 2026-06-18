@@ -41,12 +41,12 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: ${{ vars.AWS_REGION }}
           role-session-name: github-actions-create-check
 
       - name: Sprawdzenie istniejącej infrastruktury w SSM
         run: |
-          EC2_INSTANCE_ID=$(aws ssm get-parameter --name "/omnia/EC2_INSTANCE_ID" --region us-east-1 --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          EC2_INSTANCE_ID=$(aws ssm get-parameter --name "/omnia/EC2_INSTANCE_ID" --region ${{ env.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
           
           if [ -n "$EC2_INSTANCE_ID" ] && [ "$EC2_INSTANCE_ID" != "None" ]; then
             echo "::error::Infrastruktura już istnieje!"
@@ -304,44 +304,44 @@ jobs:
             --value "$INSTANCE_ID" \
             --type "String" \
             --overwrite \
-            --region us-east-1
+            --region ${{ env.AWS_REGION }}
           
           aws ssm put-parameter \
             --name "/omnia/AWS_REGION" \
             --value "$AWS_REGION" \
             --type "String" \
             --overwrite \
-            --region us-east-1
+            --region ${{ env.AWS_REGION }}
           
           aws ssm put-parameter \
             --name "/omnia/PLATFORM_NAME" \
             --value "$PLATFORM_NAME" \
             --type "String" \
             --overwrite \
-            --region us-east-1
+            --region ${{ env.AWS_REGION }}
           
           aws ssm put-parameter \
             --name "/omnia/PLATFORM_BASE_DIR" \
             --value "$PLATFORM_BASE_DIR" \
             --type "String" \
             --overwrite \
-            --region us-east-1
+            --region ${{ env.AWS_REGION }}
           
           aws ssm put-parameter \
             --name "/omnia/TFSTATE_BUCKET_SUFFIX" \
             --value "$SUFFIX" \
             --type "String" \
             --overwrite \
-            --region us-east-1
+            --region ${{ env.AWS_REGION }}
           
           aws ssm put-parameter \
             --name "/omnia/TFSTATE_BUCKET_NAME" \
             --value "$BUCKET_NAME" \
             --type "String" \
             --overwrite \
-            --region us-east-1
+            --region ${{ env.AWS_REGION }}
           
-          echo "✅ Parametry zapisane w SSM Parameter Store (us-east-1)"
+          echo "✅ Parametry zapisane w SSM Parameter Store (${{ env.AWS_REGION }})"
 
       # =====================================================================
       # KROK 12: Podsumowanie

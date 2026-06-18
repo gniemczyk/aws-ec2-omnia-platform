@@ -37,7 +37,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: ${{ vars.AWS_REGION }}
           role-session-name: github-actions-start-health-check
 
       - name: HEALTH CHECK - Sprawdzenie SSM Parameters
@@ -49,7 +49,7 @@ jobs:
           # Sprawdzenie czy EC2_INSTANCE_ID istnieje w SSM
           EC2_INSTANCE_ID=$(aws ssm get-parameter \
             --name "/omnia/EC2_INSTANCE_ID" \
-            --region us-east-1 \
+            --region ${{ vars.AWS_REGION }} \
             --query 'Parameter.Value' \
             --output text 2>/dev/null || echo "")
           
@@ -85,17 +85,17 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: ${{ vars.AWS_REGION }}
           role-session-name: github-actions-start-fetch-params
 
       - name: Pobranie parametrow z SSM
         id: ssm-params
         run: |
           # Pobierz parametry z SSM
-          EC2_INSTANCE_ID=$(aws ssm get-parameter --name "/omnia/EC2_INSTANCE_ID" --region us-east-1 --query 'Parameter.Value' --output text 2>/dev/null || echo "")
-          AWS_REGION=$(aws ssm get-parameter --name "/omnia/AWS_REGION" --region us-east-1 --query 'Parameter.Value' --output text 2>/dev/null || echo "")
-          PLATFORM_NAME=$(aws ssm get-parameter --name "/omnia/PLATFORM_NAME" --region us-east-1 --query 'Parameter.Value' --output text 2>/dev/null || echo "")
-          PLATFORM_BASE_DIR=$(aws ssm get-parameter --name "/omnia/PLATFORM_BASE_DIR" --region us-east-1 --query 'Parameter.Value' --output text 2>/dev/null || echo "/opt/omnia")
+          EC2_INSTANCE_ID=$(aws ssm get-parameter --name "/omnia/EC2_INSTANCE_ID" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          AWS_REGION=$(aws ssm get-parameter --name "/omnia/AWS_REGION" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          PLATFORM_NAME=$(aws ssm get-parameter --name "/omnia/PLATFORM_NAME" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          PLATFORM_BASE_DIR=$(aws ssm get-parameter --name "/omnia/PLATFORM_BASE_DIR" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "/opt/omnia")
           
           # Walidacja pobranych parametrow
           if [ -z "$EC2_INSTANCE_ID" ] || [ "$EC2_INSTANCE_ID" == "None" ]; then
