@@ -125,7 +125,7 @@ jobs:
           echo ""
           echo "🔍 Sprawdzenie czy infrastruktura już istnieje..."
           
-          BUCKET_EXISTS=$(aws s3 ls "s3://${PLATFORM_NAME}-tfstate-${SUFFIX}" 2>&1 || echo "")
+          BUCKET_EXISTS=$(aws s3 ls "s3://${PLATFORM_NAME}-tfstate-${SUFFIX}" --region ${{ env.AWS_REGION }} 2>&1 || echo "")
           
           if [[ "$BUCKET_EXISTS" == *"NoSuchBucket"* ]] || [[ -z "$BUCKET_EXISTS" ]]; then
             echo "✅ Bucket nie istnieje - można tworzyć infrastrukturę"
@@ -162,14 +162,16 @@ jobs:
           echo "📝 Włączanie wersjonowania..."
           aws s3api put-bucket-versioning \
             --bucket "$BUCKET_NAME" \
-            --versioning-configuration Status=Enabled
+            --versioning-configuration Status=Enabled \
+            --region ${{ env.AWS_REGION }}
           
           # Blokowanie public access (security best practice)
           echo "🔒 Blokowanie public access..."
           aws s3api put-public-access-block \
             --bucket "$BUCKET_NAME" \
             --public-access-block-configuration \
-            "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+            "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" \
+            --region ${{ env.AWS_REGION }}
           
           # Szyfrowanie domyślne (AES-256)
           echo "🔐 Włączanie szyfrowania..."
@@ -181,7 +183,8 @@ jobs:
                   "SSEAlgorithm": "AES256"
                 }
               }]
-            }'
+            }' \
+            --region ${{ env.AWS_REGION }}
 
           # Utworzenie tabeli DynamoDB
           echo ""
@@ -211,7 +214,7 @@ jobs:
             -backend-config="bucket=$BUCKET_NAME" \
             -backend-config="key=terraform.tfstate" \
             -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=$TABLE_NAME"
+            -backend-config="use_lockfile=true"
 
       # =====================================================================
       # KROK 7: Terraform validate

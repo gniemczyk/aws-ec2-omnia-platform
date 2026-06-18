@@ -194,28 +194,30 @@ jobs:
           # ============================================================
           echo "🗑️  Czyszczenie S3 Bucket: $BUCKET_NAME"
           
-          if aws s3 ls "s3://$BUCKET_NAME" 2>&1 | grep -q 'NoSuchBucket'; then
+          if aws s3 ls "s3://$BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>&1 | grep -q 'NoSuchBucket'; then
             echo "ℹ️  Bucket już nie istnieje"
           else
             # Usunięcie wszystkich wersji obiektów
             echo "  📝 Usuwanie wszystkich wersji obiektów..."
             aws s3api list-object-versions \
               --bucket "$BUCKET_NAME" \
+              --region ${{ env.AWS_REGION }} \
               --query 'Versions[].{Key:Key,VersionId:VersionId}' \
               --output json | jq -r '.[] | "--key \(.Key) --version-id \(.VersionId)"' | \
-              xargs -I {} aws s3api delete-object --bucket "$BUCKET_NAME" {} 2>/dev/null || true
+              xargs -I {} aws s3api delete-object --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} {} 2>/dev/null || true
             
             # Usunięcie wszystkich delete markers
             echo "  🗑️  Usuwanie delete markers..."
             aws s3api list-object-versions \
               --bucket "$BUCKET_NAME" \
+              --region ${{ env.AWS_REGION }} \
               --query 'DeleteMarkers[].{Key:Key,VersionId:VersionId}' \
               --output json | jq -r '.[] | "--key \(.Key) --version-id \(.VersionId)"' | \
-              xargs -I {} aws s3api delete-object --bucket "$BUCKET_NAME" {} 2>/dev/null || true
+              xargs -I {} aws s3api delete-object --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} {} 2>/dev/null || true
             
             # Usunięcie bucketu
             echo "  🪣 Usuwanie S3 Bucket..."
-            aws s3 rb "s3://$BUCKET_NAME" --force 2>/dev/null || echo "  ⚠️  Nie można usunąć bucketu - może zawierać obiekty"
+            aws s3 rb "s3://$BUCKET_NAME" --region ${{ env.AWS_REGION }} --force 2>/dev/null || echo "  ⚠️  Nie można usunąć bucketu - może zawierać obiekty"
           fi
           
           echo "✅ S3 Bucket został czyszczony"
