@@ -43,7 +43,8 @@ GitHub Actions (workflow_dispatch)
     ├── create-infrastructure.yml      # Tworzenie infrastruktury (Terraform)
     ├── start-platform.yml             # Uruchomienie platformy (Ansible)
     ├── stop-platform.yml              # Zatrzymanie platformy
-    └── destroy-infrastructure.yml     # Zniszczenie infrastruktury (Terraform)
+    ├── destroy-infrastructure.yml     # Zniszczenie infrastruktury (Terraform)
+    └── lint-and-scan.yml              # Linting i skanowanie bezpieczenstwa
 ```
 
 ## Wymagania lokalne (opcjonalne)
@@ -70,7 +71,7 @@ Potrzebne sa tylko 2 rzeczy w GitHub:
 | `AWS_REGION` | GitHub Variables | np. `eu-central-1` |
 | `PLATFORM_NAME` | GitHub Variables | np. `omnia-platform` |
 
-> 💡 **Ważne:** Rola IAM (`AWS_ROLE_ARN`) musi posiadać uprawnienia do tworzenia i zarządzania zasobami S3 (bucket stanu), DynamoDB (blokowanie stanu) i AWS Systems Manager (SSM Parameter Store).
+> 💡 **Ważne:** Rola IAM (`AWS_ROLE_ARN`) musi posiadać uprawnienia do tworzenia i zarządzania zasobami S3 (bucket stanu), EC2, VPC, IAM i AWS Systems Manager (SSM Parameter Store).
 
 **Wszystkie inne parametry (EC2_INSTANCE_ID, PLATFORM_BASE_DIR) ustawia się automatycznie w AWS SSM Parameter Store!**
 
@@ -149,15 +150,13 @@ Settings -> Secrets and variables -> Actions -> Create secret:
 
 GitHub -> Actions -> "Utwórz Infrastrukturę" -> Run workflow
 
-Wpisz parametry (lub zostaw domyślne):
-- `aws_region`: `eu-central-1` (lub inny)
-- `instance_type`: `t4g.small` (domyślnie)
-- `platform_name`: `omnia-platform` (domyślnie)
-- `auto_approve`: `false` (wymagane potwierdzenie apply)
+Workflow korzysta z GitHub Variables (ustawionych w kroku 1):
+- `AWS_REGION`: region AWS (np. `eu-central-1`)
+- `PLATFORM_NAME`: nazwa platformy (np. `aws-omnia-platform`)
 
 **Co się stanie:**
-- ✅ Automatyczna konfiguracja backendu (S3 + DynamoDB)
-- ✅ Terraform tworzy VPC, Subnet, Security Group, EC2
+- ✅ Automatyczna konfiguracja backendu (S3 bucket + native locking)
+- ✅ Terraform tworzy VPC, Subnet, Security Group, EC2, VPC Endpoints (SSM + S3)
 - ✅ Dynamiczny failover AZ - jeśli brakuje capacity, próbuje następną
 - ✅ **Parametry automatycznie zapisane w AWS SSM Parameter Store** (`/omnia/` prefix):
   - `/omnia/EC2_INSTANCE_ID`

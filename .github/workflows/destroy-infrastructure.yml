@@ -70,7 +70,7 @@ jobs:
             echo "::error::"
             echo "::error::📋 CO ROBIĆ:"
             echo "::error::1️⃣  Najpierw uruchom workflow: 'Utwórz Infrastrukturę'"
-            echo "::error::    (będzie utworzony: S3, DynamoDB, EC2)"
+            echo "::error::    (będzie utworzony: S3, EC2, VPC)"
             echo "::error::"
             echo "::error::2️⃣  Czekaj aż workflow się ukończy"
             echo "::error::    (potrwa ~10-15 minut)"
@@ -101,13 +101,11 @@ jobs:
           
           echo "SUFFIX=$SUFFIX" >> $GITHUB_OUTPUT
           echo "BUCKET_NAME=${PLATFORM_NAME}-tfstate-${SUFFIX}" >> $GITHUB_OUTPUT
-          echo "TABLE_NAME=${PLATFORM_NAME}-tflock" >> $GITHUB_OUTPUT
           
           echo "🔄 Regenerowanie identyfikatorów:"
           echo "  PLATFORM_NAME: $PLATFORM_NAME"
           echo "  SUFFIX (SHA256): $SUFFIX"
           echo "  BUCKET_NAME: ${PLATFORM_NAME}-tfstate-${SUFFIX}"
-          echo "  TABLE_NAME: ${PLATFORM_NAME}-tflock"
 
       # =====================================================================
       # KROK 4: Ostrzezenie
@@ -115,7 +113,6 @@ jobs:
       - name: Ostrzezenie - weryfikacja zasobów
         env:
           BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
-          TABLE_NAME: ${{ steps.suffix-gen.outputs.TABLE_NAME }}
         run: |
           echo "::warning::OSTRZEZENIE: Za 10 sekund zostanie uruchomiona operacja niszczenia!"
           echo "::warning::❌ ZASOBY DO USUNIĘCIA:"
@@ -126,7 +123,6 @@ jobs:
           echo "::warning::- VPC Endpoints"
           echo "::warning::- EBS Volumes"
           echo "::warning::- S3 Bucket: $BUCKET_NAME"
-          echo "::warning::- DynamoDB Table: $TABLE_NAME"
           echo "::warning::- SSM Parameters"
           echo ""
           echo "::warning::TA OPERACJA JE NIEODWRACALNA!"
@@ -177,10 +173,9 @@ jobs:
       # =====================================================================
       # KROK 9: Czyszczenie S3 i DynamoDB
       # =====================================================================
-      - name: Czyszczenie S3 Bucket i DynamoDB Table
+      - name: Czyszczenie S3 Bucket
         env:
           BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
-          TABLE_NAME: ${{ steps.suffix-gen.outputs.TABLE_NAME }}
         run: |
           echo "🧹 Czyszczenie zasobów Backend..."
           echo ""
@@ -216,33 +211,8 @@ jobs:
             aws s3 rb "s3://$BUCKET_NAME" --region ${{ env.AWS_REGION }} --force 2>/dev/null || echo "  ⚠️  Nie można usunąć bucketu - może zawierać obiekty"
           fi
           
-          echo "✅ S3 Bucket został czyszczony"
           echo ""
-          
-          # ============================================================
-          # USUWANIE DYNAMODB TABLE
-          # ============================================================
-          echo "🗄️  Usuwanie DynamoDB Table: $TABLE_NAME"
-          
-          if aws dynamodb describe-table --table-name "$TABLE_NAME" --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
-            echo "  🗑️  Usuwanie tabeli..."
-            aws dynamodb delete-table \
-              --table-name "$TABLE_NAME" \
-              --region ${{ env.AWS_REGION }}
-            
-            # Czekaj na całkowite usunięcie
-            echo "  ⏳ Czekanie na usunięcie tabeli..."
-            aws dynamodb wait table-not-exists \
-              --table-name "$TABLE_NAME" \
-              --region ${{ env.AWS_REGION }} 2>/dev/null || true
-            
-            echo "✅ DynamoDB Table usunięta"
-          else
-            echo "ℹ️  Tabela już nie istnieje"
-          fi
-          
-          echo ""
-          echo "✅ Backend resources całkowicie czyszcze"
+          echo "✅ Backend S3 wyczyszczony"
 
       # =====================================================================
       # KROK 10: Usunięcie parametrow SSM
@@ -276,7 +246,6 @@ jobs:
         if: always()
         env:
           BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
-          TABLE_NAME: ${{ steps.suffix-gen.outputs.TABLE_NAME }}
         run: |
           echo "## ⚠️ Infrastruktura zniszczona" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -286,7 +255,6 @@ jobs:
           echo "| Platform Name | \`${{ env.PLATFORM_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Region | \`${{ env.AWS_REGION }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| S3 Bucket | \`$BUCKET_NAME\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| DynamoDB Table | \`$TABLE_NAME\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Wykonał | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Czas | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -298,7 +266,6 @@ jobs:
           echo "- ✅ VPC Endpoints" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ EBS Volumes" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ S3 Bucket (razem z wszystkimi wersjonowanymi obiektami)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ DynamoDB Table (Terraform Lock)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ SSM Parameters" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Następne kroki:" >> $GITHUB_STEP_SUMMARY

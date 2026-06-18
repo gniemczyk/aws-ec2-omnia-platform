@@ -60,7 +60,7 @@ jobs:
             echo "::error::"
             echo "::error::📋 CO ROBIĆ:"
             echo "::error::1️⃣  Najpierw uruchom workflow: 'Utwórz Infrastrukturę'"
-            echo "::error::    (będzie utworzony: S3, DynamoDB, EC2)"
+            echo "::error::    (będzie utworzony: S3, EC2, VPC)"
             echo "::error::"
             echo "::error::2️⃣  Czekaj aż workflow się ukończy"
             echo "::error::    (potrwa ~10-15 minut)"
