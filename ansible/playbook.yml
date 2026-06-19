@@ -305,9 +305,3 @@
     - name: Wyswietlenie koncowego raportu
       debug:
         msg: "{{ markdown_report.content | b64decode }}"
-
-    - name: Zapisanie raportu do pliku lokalnego (dla GitHub Actions)
-      fetch:
-        src: "{{ results_file }}"
-        dest: "/tmp/tunnel-urls.md"
-        flat: true

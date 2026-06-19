@@ -8,7 +8,7 @@ Każda aplikacja ma własny podkatalog `app/<nazwa>/` z `Dockerfile` i `docker-c
 cd app/<nazwa>/
 cp .env.example .env
 # edytuj .env z wlasciwymi wartosciami
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 Każda aplikacja zawiera `.env.example` z opisem wymaganych zmiennych.
