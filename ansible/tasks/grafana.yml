@@ -33,7 +33,7 @@
     NEW_PASS=$(openssl rand -hex 12)
     aws ssm put-parameter --name "/omnia/GRAFANA_ADMIN_PASSWORD" \
       --value "$NEW_PASS" --type "String" --overwrite \
-      --region {{ lookup('env', 'AWS_REGION') }}
+      --region {{ lookup('env', 'AWS_REGION') }} >/dev/null
     echo "$NEW_PASS"
   register: new_password
   when: grafana_admin_password | length == 0
