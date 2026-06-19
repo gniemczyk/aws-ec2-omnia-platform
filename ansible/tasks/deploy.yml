@@ -48,23 +48,25 @@
 - name: Wdrozenie aplikacji przez docker run (jesli compose=false)
   shell: |
     docker rm -f "omnia-{{ item.name }}" 2>/dev/null || true
-    ENV_FLAGS=""
+    ENV_FLAGS=()
     {% for env_var in item.env | default([]) %}
-    ENV_FLAGS="$ENV_FLAGS -e '{{ env_var }}'"
+    ENV_FLAGS+=(-e "{{ env_var }}")
     {% endfor %}
     {% set app_vars = vars.get('app_' + item.name, {}) %}
     {% if app_vars is mapping and app_vars.env_extra is defined %}
     {% for key, value in app_vars.env_extra.items() %}
-    ENV_FLAGS="$ENV_FLAGS -e '{{ key }}={{ value }}'"
+    ENV_FLAGS+=(-e "{{ key }}={{ value }}")
     {% endfor %}
     {% endif %}
-    eval docker run -d \
+    docker run -d \
       --name "omnia-{{ item.name }}" \
       --restart unless-stopped \
       --label "platform=omnia" \
       -p "127.0.0.1:{{ item.port }}:{{ item.port }}" \
-      $ENV_FLAGS \
+      "${ENV_FLAGS[@]}" \
       "{{ item.image }}"
+  args:
+    executable: /bin/bash
   loop: "{{ apps }}"
   loop_control:
     label: "{{ item.name }} (docker run)"

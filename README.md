@@ -1,23 +1,24 @@
-# AWS EC2 Omnia Platform
+# AWS EC2 Omnia Platform (DevOps Portfolio Project)
 
-Wszechstronna platforma EC2 z kontenerami Docker, sterowana plikiem `apps.json` i katalogiem `app/`. Uruchamiana jednym kliknieciem w GitHub Actions. Zero otwartych portow, zero SSH, zero hardcode.
+Wszechstronna platforma EC2 z kontenerami Docker, sterowana plikiem `apps.json` i katalogiem `app/`. Uruchamiana jednym kliknięciem w GitHub Actions. Zero otwartych portów, zero SSH, zero hardcode. Zoptymalizowana kosztowo dzięki rezygnacji z publicznego adresu IPv4 – instancja posiada wyłącznie IPv6, a z klasycznym internetem komunikuje się przez "ukryte" wyjście na świat via Cloudflare WARP.
 
 ## Architektura
 
-```
+```text
 GitHub Actions (workflow_dispatch)
         |
         | AWS OIDC (brak statycznych kluczy)
         v
-   AWS EC2 t4g.small (ARM64 Graviton, 2GB RAM)
+   AWS EC2 t4g.small (ARM64 Graviton, 2GB RAM) - IPv6 Only
         |
         | Ansible przez AWS SSM (brak SSH)
         v
    app/<name>/docker-compose.yml
         |
-        | cloudflared tunnel (ruch wychodzacy)
+        | [Inbound] cloudflared tunnel (dostęp publiczny)
+        | [Outbound] Cloudflare WARP (ukryte wyjście NAT64/IPv4 w świat)
         v
-   https://*.trycloudflare.com (publiczny dostep)
+   https://*.trycloudflare.com / Internet
 ```
 
 ## Struktura projektu
@@ -35,8 +36,10 @@ GitHub Actions (workflow_dispatch)
 ├── ansible/
 │   ├── ansible.cfg                    # Konfiguracja (SSM)
 │   ├── inventory.yml                  # Inventory (zmienne srodowiskowe)
-│   ├── playbook.yml                   # Playbook (app/ + cloudflared)
-│   └── requirements.yml               # Kolekcje Ansible Galaxy
+│   ├── playbook.yml                   # Playbook (app/ + cloudflared + WARP)
+│   ├── requirements.yml               # Kolekcje Ansible Galaxy
+│   └── tasks/
+│       └── warp.yml                   # Cloudflare WARP - hybrydowy dostęp do Internetu po IPv6
 └── .github/workflows/
     ├── create-infrastructure.yml      # Tworzenie infrastruktury (Terraform)
     ├── start-platform.yml             # Uruchomienie platformy (Ansible)
@@ -277,17 +280,16 @@ Szczegóły konfiguracji, lista dostępnych aplikacji i instrukcja dodawania now
 
 ➡️ **[app/README.md](app/README.md)**
 
-## Bezpieczenstwo
+## Bezpieczenstwo i Architektura Sieciowa (Zero Trust)
 
-- Zero portow przychodzacych (Security Group: brak regul ingress)
-- Port 22 zamkniety, klucz SSH nie istnieje na maszynie
-- Zarzadzanie wylacznie przez AWS SSM (uwierzytelnianie IAM)
-- IMDSv2 wymuszone (ochrona przed SSRF)
-- EBS szyfrowany
-- CI/CD bez statycznych kluczy (OIDC federation)
-- Tunele Cloudflare = polaczenia wychodzace, nie wymagaja otwartych portow
-- **Brak hardcoded credentials** - hasla przekazywane przez GitHub Secrets lub generowane losowo podczas deployu
-- **Plik `apps.json` nie zawiera hasel** - wrażliwe zmienne przekazuj przez GitHub Secrets
+Projekt demonstruje zaawansowane podejście DevOps do bezpieczeństwa, infrastruktury jako kodu (IaC) oraz optymalizacji kosztów:
+
+- **Ukryte wyjście na świat (Cloudflare WARP):** Instancja EC2 celowo nie posiada publicznego adresu IPv4, co znacząco obniża koszty AWS (EIP). Komunikacja w stronę klasycznego internetu IPv4 tunelowana jest bezpiecznie przez wdrożonego klienta WARP (`ansible/tasks/warp.yml`), dostarczając tzw. "kamuflaż" NAT64. Serwer ma dostęp do internetu, ale internet nie widzi serwera.
+- **Zero Inbound (Zamknięta Twierdza):** Security Group w AWS nie posiada ŻADNYCH reguł Ingress. Port 22 fizycznie nie funkcjonuje, pliki z kluczami SSH na maszynie nie istnieją. Wystawienie usług webowych na świat realizowane jest wyłącznie przez odwrócone tunele (`cloudflared`).
+- Zarzadzanie wylacznie przez AWS Systems Manager (SSM) autoryzowane via IAM, z wewnętrznym ruchem po bezpłatnym AWS Gateway Endpoint.
+- Ochrona przed atakami typu SSRF (wymuszone użycie IMDSv2).
+- CI/CD z pełną automatyzacją oraz autoryzacją OIDC (federacja GitHub Actions -> AWS) bez konieczności utrzymywania długowiecznych kluczy statycznych.
+- **Brak hardcoded credentials** - wszystkie hasła i tajne klucze aplikacyjne są przekazywane poprzez GitHub Secrets lub generowane automatycznie (np. Grafana) i bezpiecznie przetrzymywane w AWS SSM Parameter Store.
 
 ## Licencja
 

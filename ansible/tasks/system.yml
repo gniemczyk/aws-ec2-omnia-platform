@@ -2,11 +2,6 @@
 # FAZA 1: Przygotowanie systemu
 # =============================================================================
 
-- name: Oczekiwanie na zakonczenie cloud-init
-  command: cloud-init status --wait
-  changed_when: false
-  timeout: 300
-
 - name: Aktualizacja cache apt
   apt:
     update_cache: true

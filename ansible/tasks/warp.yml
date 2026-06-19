@@ -1,0 +1,125 @@
+# =============================================================================
+# FAZA 1b: Instalacja i konfiguracja Cloudflare WARP
+# =============================================================================
+
+- name: Włączenie systemd-resolved
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    enabled: yes
+    state: started
+
+- name: Dodanie klucza GPG Cloudflare
+  ansible.builtin.get_url:
+    url: https://pkg.cloudflareclient.com/pubkey.gpg
+    dest: /tmp/cloudflare-pubkey.gpg
+    mode: '0644'
+
+- name: Konwersja klucza GPG (dearmor)
+  ansible.builtin.command:
+    cmd: gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg /tmp/cloudflare-pubkey.gpg
+    creates: /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+
+- name: Nadanie uprawnień do klucza
+  ansible.builtin.file:
+    path: /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+    mode: '0644'
+
+- name: Dodanie repozytorium APT Cloudflare
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=arm64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ {{ ansible_distribution_release }} main"
+    state: present
+    filename: cloudflare-client
+
+- name: Instalacja pakietu cloudflare-warp
+  ansible.builtin.apt:
+    name: cloudflare-warp
+    state: present
+    update_cache: yes
+
+- name: Wyłączenie warp-taskbar.service (GUI niepotrzebne)
+  ansible.builtin.systemd:
+    name: warp-taskbar.service
+    enabled: no
+    state: stopped
+  ignore_errors: yes
+
+- name: Sprawdzenie statusu rejestracji WARP
+  ansible.builtin.command: warp-cli registration show
+  register: warp_reg_status
+  changed_when: false
+  failed_when: false
+
+- name: Rejestracja nowej instancji WARP
+  ansible.builtin.command: warp-cli --accept-tos registration new
+  when: warp_reg_status.rc != 0
+
+- name: Ustawienie trybu WARP (Mode WARP)
+  ansible.builtin.command: warp-cli --accept-tos mode warp
+
+- name: Sprawdzenie wykluczeń tunelu WARP
+  ansible.builtin.command: warp-cli --accept-tos tunnel ip list
+  register: warp_tunnel_list
+  changed_when: false
+
+- name: Dodanie wykluczenia dla podsieci Cloudflare (2606:4700::/32)
+  ansible.builtin.command: warp-cli --accept-tos tunnel ip add-range 2606:4700::/32
+  when: "'2606:4700::/32' not in warp_tunnel_list.stdout"
+
+- name: Uruchomienie połączenia WARP
+  ansible.builtin.command: warp-cli --accept-tos connect
+
+- name: Utworzenie pliku usługi systemd dla poprawki MTU (1100)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/warp-mtu.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Fix MTU for CloudflareWARP Interface
+      After=warp-svc.service
+      Requires=warp-svc.service
+
+      [Service]
+      Type=simple
+      Restart=always
+      RestartSec=5
+      ExecStart=/bin/bash -c '\
+          while true; do \
+              if ip link show CloudflareWARP > /dev/null 2>&1; then \
+                  CURRENT_MTU=$(ip link show CloudflareWARP | grep -o "mtu [0-9]*" | awk "{print \$$2}"); \
+                  if [ "$CURRENT_MTU" != "1100" ]; then \
+                      ip link set dev CloudflareWARP mtu 1100; \
+                      echo "MTU zmienione z $CURRENT_MTU na 1100"; \
+                  fi; \
+              fi; \
+              sleep 30; \
+          done'
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Przeładowanie systemd i uruchomienie usługi MTU
+  ansible.builtin.systemd:
+    daemon_reload: yes
+    name: warp-mtu.service
+    enabled: yes
+    state: restarted
+
+- name: Wymuszenie MTU natychmiastowo
+  ansible.builtin.command: ip link set dev CloudflareWARP mtu 1100
+  ignore_errors: yes
+
+- name: Oczekiwanie na stabilizacje tunelu WARP i rutingu
+  ansible.builtin.pause:
+    seconds: 10
+
+- name: Test łączności IPv4 przez WARP (wymagane do dalszej instalacji)
+  ansible.builtin.command: curl -s -I -4 -m 10 https://github.com
+  register: warp_test
+  retries: 3
+  delay: 5
+  until: warp_test.rc == 0
+  changed_when: false
+
+- name: Potwierdzenie działania internetu IPv4
+  ansible.builtin.debug:
+    msg: "Test łączności IPv4 zakończony sukcesem! WARP dostarcza internet."

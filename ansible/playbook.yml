@@ -45,20 +45,28 @@
     # Import faz
     # =========================================================================
 
-    - name: FAZA 1 - Przygotowanie systemu
+    - name: FAZA 1a - Oczekiwanie na gotowosc instancji (cloud-init)
+      command: cloud-init status --wait
+      changed_when: false
+      # timeout: 300 nie dziala w module command, wiec po prostu zablokuje wykonanie do zakonczenia.
+
+    - name: FAZA 1b - Instalacja i konfiguracja Cloudflare WARP (Dostep IPv4 do Internetu)
+      ansible.builtin.import_tasks: tasks/warp.yml
+
+    - name: FAZA 2 - Przygotowanie systemu (Docker, glowne pakiety)
       ansible.builtin.import_tasks: tasks/system.yml
 
-    - name: FAZA 2 - Instalacja cloudflared
+    - name: FAZA 3 - Instalacja cloudflared
       ansible.builtin.import_tasks: tasks/cloudflared.yml
 
-    - name: FAZA 3 - Konfiguracja aplikacji
+    - name: FAZA 4 - Konfiguracja aplikacji
       ansible.builtin.import_tasks: tasks/config.yml
 
-    - name: FAZA 4 - Deploy kontenerow
+    - name: FAZA 5 - Deploy kontenerow
       ansible.builtin.import_tasks: tasks/deploy.yml
 
-    - name: FAZA 5 - Tunele Cloudflare
+    - name: FAZA 6 - Tunele Cloudflare
       ansible.builtin.import_tasks: tasks/tunnels.yml
 
-    - name: FAZA 6 - Raport
+    - name: FAZA 7 - Raport
       ansible.builtin.import_tasks: tasks/report.yml

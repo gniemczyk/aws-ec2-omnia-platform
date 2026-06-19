@@ -14,21 +14,11 @@
     dest: "{{ apps_config_path }}"
     mode: "0644"
 
-- name: Skopiowanie katalogu app/ na instancje
-  synchronize:
-    src: "../app/"
-    dest: "{{ apps_dir }}/"
-    recursive: true
-    delete: false
-  ignore_errors: true
-  register: sync_result
-
-- name: Fallback - kopiowanie katalogu app/ przez copy
+- name: Skopiowanie katalogu app/ na instancje (przez SSM copy)
   copy:
     src: "../app/"
     dest: "{{ apps_dir }}/"
     mode: "0755"
-  when: sync_result is failed
 
 - name: Odczyt i parsowanie apps.json
   slurp:
