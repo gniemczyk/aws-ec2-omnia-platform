@@ -22,3 +22,14 @@
     name: docker
     state: started
     enabled: true
+
+- name: Upewnienie sie, ze grupa docker istnieje
+  group:
+    name: docker
+    state: present
+
+- name: Dodanie ssm-user do grupy docker
+  user:
+    name: ssm-user
+    groups: docker
+    append: yes
