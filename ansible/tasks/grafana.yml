@@ -8,7 +8,7 @@
 
 - name: Sprawdzenie czy haslo Grafana istnieje w SSM
   command:
-    cmd: aws ssm get-parameter --name "/omnia/GRAFANA_ADMIN_PASSWORD" --query 'Parameter.Value' --output text
+    cmd: aws ssm get-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" --query 'Parameter.Value' --output text
   register: ssm_password_result
   failed_when: false
   changed_when: false
@@ -31,10 +31,10 @@
 - name: Generowanie losowego hasla i zapis do SSM
   shell: |
     NEW_PASS=$(openssl rand -hex 12)
-    aws ssm put-parameter --name "/omnia/GRAFANA_ADMIN_PASSWORD" \
+    aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" \
       --value "$NEW_PASS" --type "String" --overwrite \
-      --region {{ lookup('env', 'AWS_REGION') }} >/dev/null
-    echo "$NEW_PASS"
+      --region {{ lookup('env', 'AWS_REGION') }} >/dev/null 2>&1
+    printf '%s' "$NEW_PASS"
   register: new_password
   when: grafana_admin_password | length == 0
   no_log: true
@@ -49,7 +49,7 @@
 
 - name: Zapis hasla Grafana do SSM (persystencja)
   command:
-    cmd: aws ssm put-parameter --name "/omnia/GRAFANA_ADMIN_PASSWORD" --value "{{ grafana_admin_password }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }}
+    cmd: aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" --value "{{ grafana_admin_password }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }}
   when: grafana_admin_password | length > 0
   no_log: true
   environment:
@@ -57,7 +57,7 @@
 
 - name: Zapis uzytkownika Grafana do SSM
   command:
-    cmd: aws ssm put-parameter --name "/omnia/GRAFANA_ADMIN_USER" --value "{{ grafana_admin_user }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }}
+    cmd: aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_USER" --value "{{ grafana_admin_user }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }}
   changed_when: false
   when: grafana_admin_user | length > 0
   environment:

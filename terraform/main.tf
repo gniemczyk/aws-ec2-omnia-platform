@@ -296,7 +296,7 @@ resource "aws_iam_role_policy" "platform_access" {
           "ssm:GetParameter",
           "ssm:DeleteParameter"
         ]
-        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/omnia/GRAFANA_*"
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/GRAFANA_*"
       }
     ]
   })

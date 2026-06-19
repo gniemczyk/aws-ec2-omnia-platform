@@ -20,6 +20,9 @@
     apps_dir: "{{ platform_base_dir }}/app"
     results_file: "{{ platform_base_dir }}/tunnel-urls.md"
 
+    # Prefiks dla SSM Parameter Store (np. /nazwa-platformy/)
+    ssm_root: "/{{ platform_name }}"
+
     # Dane logowania do Grafany - nadpisywane przez --extra-vars (z GitHub Secrets)
     # Jesli nie podane, zostanie wygenerowane losowe haslo podczas deployu
     grafana_admin_user: admin

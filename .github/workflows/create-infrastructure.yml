@@ -46,7 +46,7 @@ jobs:
 
       - name: Sprawdzenie istniejącej infrastruktury w SSM
         run: |
-          EC2_INSTANCE_ID=$(aws ssm get-parameter --name "/omnia/EC2_INSTANCE_ID" --region ${{ env.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          EC2_INSTANCE_ID=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID" --region ${{ env.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
           
           if [ -n "$EC2_INSTANCE_ID" ] && [ "$EC2_INSTANCE_ID" != "None" ]; then
             echo "::error::Infrastruktura już istnieje!"
@@ -430,42 +430,42 @@ jobs:
           echo "💾 Zapisywanie parametrów do SSM Parameter Store..."
           
           aws ssm put-parameter \
-            --name "/omnia/EC2_INSTANCE_ID" \
+            --name "/${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID" \
             --value "$INSTANCE_ID" \
             --type "String" \
             --overwrite \
             --region ${{ env.AWS_REGION }}
           
           aws ssm put-parameter \
-            --name "/omnia/AWS_REGION" \
+            --name "/${{ env.PLATFORM_NAME }}/AWS_REGION" \
             --value "$AWS_REGION" \
             --type "String" \
             --overwrite \
             --region ${{ env.AWS_REGION }}
           
           aws ssm put-parameter \
-            --name "/omnia/PLATFORM_NAME" \
+            --name "/${{ env.PLATFORM_NAME }}/PLATFORM_NAME" \
             --value "$PLATFORM_NAME" \
             --type "String" \
             --overwrite \
             --region ${{ env.AWS_REGION }}
           
           aws ssm put-parameter \
-            --name "/omnia/PLATFORM_BASE_DIR" \
+            --name "/${{ env.PLATFORM_NAME }}/PLATFORM_BASE_DIR" \
             --value "$PLATFORM_BASE_DIR" \
             --type "String" \
             --overwrite \
             --region ${{ env.AWS_REGION }}
           
           aws ssm put-parameter \
-            --name "/omnia/TFSTATE_BUCKET_SUFFIX" \
+            --name "/${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_SUFFIX" \
             --value "$SUFFIX" \
             --type "String" \
             --overwrite \
             --region ${{ env.AWS_REGION }}
           
           aws ssm put-parameter \
-            --name "/omnia/TFSTATE_BUCKET_NAME" \
+            --name "/${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_NAME" \
             --value "$BUCKET_NAME" \
             --type "String" \
             --overwrite \
@@ -505,10 +505,10 @@ jobs:
           echo "## ⚙️ Następne kroki" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Uruchom workflow **'Uruchom Platform'** - będzie używać AWS SSM Parameter Store:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`/omnia/EC2_INSTANCE_ID\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`/omnia/AWS_REGION\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`/omnia/PLATFORM_NAME\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`/omnia/PLATFORM_BASE_DIR\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`/${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`/${{ env.PLATFORM_NAME }}/AWS_REGION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`/${{ env.PLATFORM_NAME }}/PLATFORM_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`/${{ env.PLATFORM_NAME }}/PLATFORM_BASE_DIR\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "> 💡 Parametry zostały automatycznie zapisane w SSM Parameter Store"  >> $GITHUB_STEP_SUMMARY
 

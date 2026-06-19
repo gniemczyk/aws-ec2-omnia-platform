@@ -58,7 +58,7 @@ jobs:
           
           # Sprawdzenie czy EC2_INSTANCE_ID istnieje w SSM
           EC2_INSTANCE_ID=$(aws ssm get-parameter \
-            --name "/omnia/EC2_INSTANCE_ID" \
+            --name "/${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID" \
             --region ${{ vars.AWS_REGION }} \
             --query 'Parameter.Value' \
             --output text 2>/dev/null || echo "")
@@ -102,18 +102,18 @@ jobs:
         id: ssm-params
         run: |
           # Pobierz parametry z SSM
-          EC2_INSTANCE_ID=$(aws ssm get-parameter --name "/omnia/EC2_INSTANCE_ID" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
-          AWS_REGION=$(aws ssm get-parameter --name "/omnia/AWS_REGION" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          EC2_INSTANCE_ID=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          AWS_REGION=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/AWS_REGION" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
           
           # Walidacja pobranych parametrow
           if [ -z "$EC2_INSTANCE_ID" ] || [ "$EC2_INSTANCE_ID" == "None" ]; then
-            echo "::error::Brakuje parametru SSM: /omnia/EC2_INSTANCE_ID"
+            echo "::error::Brakuje parametru SSM: /${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID"
             echo "::notice::Uruchom workflow 'Utwórz Infrastrukturę' aby je ustawic"
             exit 1
           fi
           
           if [ -z "$AWS_REGION" ] || [ "$AWS_REGION" == "None" ]; then
-            echo "::error::Brakuje parametru SSM: /omnia/AWS_REGION"
+            echo "::error::Brakuje parametru SSM: /${{ env.PLATFORM_NAME }}/AWS_REGION"
             exit 1
           fi
           

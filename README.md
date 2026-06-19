@@ -158,11 +158,11 @@ Workflow korzysta z GitHub Variables (ustawionych w kroku 1):
 - ✅ Automatyczna konfiguracja backendu (S3 bucket + native locking)
 - ✅ Terraform tworzy VPC, Subnet, Security Group, EC2, VPC Endpoints (SSM + S3)
 - ✅ Dynamiczny failover AZ - jeśli brakuje capacity, próbuje następną
-- ✅ **Parametry automatycznie zapisane w AWS SSM Parameter Store** (`/omnia/` prefix):
-  - `/omnia/EC2_INSTANCE_ID`
-  - `/omnia/AWS_REGION`
-  - `/omnia/PLATFORM_NAME`
-  - `/omnia/PLATFORM_BASE_DIR`
+- ✅ **Parametry automatycznie zapisane w AWS SSM Parameter Store** (`/&lt;PLATFORM_NAME&gt;/` prefix):
+  - `/&lt;PLATFORM_NAME&gt;/EC2_INSTANCE_ID`
+  - `/&lt;PLATFORM_NAME&gt;/AWS_REGION`
+  - `/&lt;PLATFORM_NAME&gt;/PLATFORM_NAME`
+  - `/&lt;PLATFORM_NAME&gt;/PLATFORM_BASE_DIR`
 - ✅ Gotowe do użytku!
 
 ### 3. Uruchom workflow "Uruchom Platform"
@@ -206,14 +206,14 @@ Wpisz `destroy` aby potwierdzić.
 
 ## AWS SSM Parameter Store - Konfiguracja automatyczna
 
-Wszystkie parametry konfiguracyjne są przechowywane w **AWS Systems Manager Parameter Store** pod prefixem `/omnia/`:
+Wszystkie parametry konfiguracyjne są przechowywane w **AWS Systems Manager Parameter Store** pod prefixem `/&lt;PLATFORM_NAME&gt;/`:
 
 | Parameter | Wartość | Źródło | Użycie |
 |-----------|---------|--------|--------|
-| `/omnia/EC2_INSTANCE_ID` | `i-0abc123def456789` | Terraform output | start/stop/destroy |
-| `/omnia/AWS_REGION` | `eu-central-1` | Terraform variable | start/stop workflows |
-| `/omnia/PLATFORM_NAME` | `omnia-platform` | GitHub Variable | S3 bucket naming |
-| `/omnia/PLATFORM_BASE_DIR` | `/opt/omnia` | Workflow default | Ansible paths |
+| `/&lt;PLATFORM_NAME&gt;/EC2_INSTANCE_ID` | `i-0abc123def456789` | Terraform output | start/stop/destroy |
+| `/&lt;PLATFORM_NAME&gt;/AWS_REGION` | `eu-central-1` | Terraform variable | start/stop workflows |
+| `/&lt;PLATFORM_NAME&gt;/PLATFORM_NAME` | `omnia-platform` | GitHub Variable | S3 bucket naming |
+| `/&lt;PLATFORM_NAME&gt;/PLATFORM_BASE_DIR` | `/opt/omnia` | Workflow default | Ansible paths |
 
 **Zalety SSM Parameter Store:**
 - ✅ Brak hardcoded values w workflow'ach
@@ -254,7 +254,7 @@ Terraform automatycznie:
    ↓
    Terraform outputs
    ↓
-   AWS SSM Parameter Store (/omnia/*)
+   AWS SSM Parameter Store (/&lt;PLATFORM_NAME&gt;/*)
    ↓
 2. Uruchom Platform (automatycznie pobiera z SSM)
    ↓
