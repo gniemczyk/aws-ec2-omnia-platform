@@ -25,10 +25,8 @@ GitHub Actions (workflow_dispatch)
 ```
 .
 ├── apps.json                          # Definicja aplikacji do wdrozenia
-├── app/                               # Katalog z aplikacjami
-│   └── grafana/                       # Przykladowa aplikacja
-│       ├── Dockerfile
-│       └── docker-compose.yml
+├── app/                               # Katalog z aplikacjami (szczegoly: app/README.md)
+│   └── README.md
 ├── terraform/
 │   ├── main.tf                        # VPC, Subnet, SG, EC2, IAM, Endpoints
 │   ├── variables.tf                   # Zmienne (region, AZ, typ instancji...)
@@ -72,6 +70,8 @@ Potrzebne sa tylko 2 rzeczy w GitHub:
 | `PLATFORM_NAME` | GitHub Variables | np. `omnia-platform` |
 
 > 💡 **Ważne:** Rola IAM (`AWS_ROLE_ARN`) musi posiadać uprawnienia do tworzenia i zarządzania zasobami S3 (bucket stanu), EC2, VPC, IAM i AWS Systems Manager (SSM Parameter Store).
+>
+> 💡 **Aplikacje mogą wymagać dodatkowych secretów** — zobacz [app/README.md](app/README.md) dla szczegółów.
 
 **Wszystkie inne parametry (EC2_INSTANCE_ID, PLATFORM_BASE_DIR) ustawia się automatycznie w AWS SSM Parameter Store!**
 
@@ -271,41 +271,11 @@ Terraform automatycznie:
 
 ---
 
-Kazda aplikacja ma wlasny podkatalog z Dockerfile i docker-compose:
+Aplikacje są definiowane w `apps.json` i wdrażane przez Ansible (docker-compose lub docker run). Każda aplikacja ma własny podkatalog `app/<nazwa>/`.
 
-```
-app/
-├── grafana/
-│   ├── Dockerfile
-│   └── docker-compose.yml
-├── moja-appka/
-│   ├── Dockerfile
-│   └── docker-compose.yml
-└── ...
-```
+Szczegóły konfiguracji, lista dostępnych aplikacji i instrukcja dodawania nowych znajdują się w osobnej dokumentacji:
 
-Ansible dla kazdej aplikacji z `compose: true` w `apps.json`:
-1. Generuje `.env` ze zmiennymi z `apps.json`
-2. Uruchamia `docker-compose up -d --build`
-
-Dla `compose: false` - prosty `docker run`.
-
-## Dodawanie nowej aplikacji
-
-1. Utworz `app/<nazwa>/` z `Dockerfile` i `docker-compose.yml`
-2. Dodaj wpis w `apps.json`:
-
-```json
-{
-  "name": "nazwa",
-  "image": "obraz:tag",
-  "port": 9090,
-  "compose": true,
-  "env": ["KEY=value"]
-}
-```
-
-3. Push do repo i uruchom workflow "Uruchom Platform"
+➡️ **[app/README.md](app/README.md)**
 
 ## Bezpieczenstwo
 
@@ -316,6 +286,8 @@ Dla `compose: false` - prosty `docker run`.
 - EBS szyfrowany
 - CI/CD bez statycznych kluczy (OIDC federation)
 - Tunele Cloudflare = polaczenia wychodzace, nie wymagaja otwartych portow
+- **Brak hardcoded credentials** - hasla przekazywane przez GitHub Secrets lub generowane losowo podczas deployu
+- **Plik `apps.json` nie zawiera hasel** - wrażliwe zmienne przekazuj przez GitHub Secrets
 
 ## Licencja
 

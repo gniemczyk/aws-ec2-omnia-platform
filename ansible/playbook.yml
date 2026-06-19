@@ -21,6 +21,11 @@
     apps_dir: "{{ platform_base_dir }}/app"
     results_file: "{{ platform_base_dir }}/tunnel-urls.md"
 
+    # Dane logowania do Grafany - nadpisywane przez --extra-vars (z GitHub Secrets)
+    # Jesli nie podane, zostanie wygenerowane losowe haslo podczas deployu
+    grafana_admin_user: admin
+    grafana_admin_password: ""
+
   tasks:
     # =========================================================================
     # FAZA 1: Przygotowanie systemu
@@ -73,6 +78,21 @@
     - name: Wyswietlenie wersji cloudflared
       debug:
         msg: "{{ cloudflared_version_output.stdout }}"
+
+    # =========================================================================
+    # FAZA 2.5: Generowanie hasla do Grafany (jesli nie podane przez extra-vars)
+    # =========================================================================
+
+    - name: Przywrocenie domyslnego uzytkownika admina jesli przekazano pusty
+      set_fact:
+        grafana_admin_user: admin
+      when: grafana_admin_user | length == 0
+
+    - name: Generowanie losowego hasla admina Grafany
+      set_fact:
+        grafana_admin_password: "{{ lookup('pipe', 'openssl rand -hex 12') }}"
+      when: grafana_admin_password | length == 0
+      no_log: true
 
     # =========================================================================
     # FAZA 3: Wgranie konfiguracji i katalogu aplikacji
@@ -138,6 +158,10 @@
           {% for env_var in item.env | default([]) %}
           {{ env_var }}
           {% endfor %}
+          {% if item.name == "grafana" %}
+          GF_SECURITY_ADMIN_USER={{ grafana_admin_user }}
+          GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}
+          {% endif %}
         dest: "{{ apps_dir }}/{{ item.name }}/.env"
         mode: "0600"
       loop: "{{ apps }}"
@@ -255,6 +279,14 @@
           {% for result in tunnel_urls.results %}
           | {{ result.item.name }} | `{{ result.item.image }}` | {{ result.item.port }} | [Link]({{ result.stdout | default('oczekiwanie...') }}) - \`{{ result.stdout | default('oczekiwanie...') }}\` |
           {% endfor %}
+
+          {% if grafana_admin_user | length > 0 and grafana_admin_password | length > 0 %}
+          ### 🔐 Grafana - dane logowania
+          | Parametr | Wartosc |
+          |----------|---------|
+          | Login | `{{ grafana_admin_user }}` |
+          | Password | `{{ grafana_admin_password }}` |
+          {% endif %}
 
           ---
           ### Informacje

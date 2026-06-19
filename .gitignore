@@ -15,6 +15,7 @@ crash.*.log
 .env.local
 .env.*.local
 app/.env
+app/*/.env
 
 # Docker
 *.log

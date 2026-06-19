@@ -1,8 +1,8 @@
 # =============================================================================
 # Grafana - Docker Compose
 # =============================================================================
-# Plik docker-compose uzywa zmiennych srodowiskowych z pliku .env
-# ktory jest generowany automatycznie przez Ansible na podstawie apps.json.
+# Lokalnie:  cp .env.example .env -> docker-compose up
+# Produkcja: .env generowany automatycznie przez Ansible (apps.json + Secrets)
 # =============================================================================
 
 services:

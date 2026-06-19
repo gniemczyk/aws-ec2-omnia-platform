@@ -242,7 +242,8 @@ jobs:
           ansible-playbook playbook.yml \
             -i inventory.yml \
             -v \
-            --timeout 120
+            --timeout 120 \
+            --extra-vars "grafana_admin_user=${{ secrets.GRAFANA_ADMIN_USER }} grafana_admin_password=${{ secrets.GRAFANA_ADMIN_PASSWORD }}"
 
       # =====================================================================
       # KROK 7: Pobranie URL-i tuneli i publikacja w podsumowaniu
