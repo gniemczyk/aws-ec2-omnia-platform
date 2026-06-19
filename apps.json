@@ -8,11 +8,9 @@
   },
   {
     "name": "api",
-    "image": "hashicorp/http-echo:latest",
-    "port": 8080,
+    "image": "nginx:alpine",
+    "port": 80,
     "compose": false,
-    "env": [
-      "ECHO_TEXT=Omnia Platform is running"
-    ]
+    "env": []
   }
 ]

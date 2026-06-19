@@ -29,14 +29,12 @@
       | {{ result.item.name }} | `{{ result.item.image }}` | {{ result.item.port }} | [Link]({{ result.stdout | default('oczekiwanie...') }}) - \`{{ result.stdout | default('oczekiwanie...') }}\` |
       {% endfor %}
 
-      {% set app_graf = vars.get('app_grafana', {}) %}
-      {% if app_graf is mapping and app_graf.env_extra is defined and app_graf.env_extra.GF_SECURITY_ADMIN_USER | length > 0 and app_graf.env_extra.GF_SECURITY_ADMIN_PASSWORD | length > 0 %}
       ### 🔐 Grafana - dane logowania
       | Parametr | Wartosc |
       |----------|---------|
-      | Login | `{{ app_graf.env_extra.GF_SECURITY_ADMIN_USER }}` |
-      | Password | `{{ app_graf.env_extra.GF_SECURITY_ADMIN_PASSWORD }}` |
-      {% endif %}
+      | Login | `{{ grafana_admin_user }}` |
+      | Haslo | `{{ grafana_admin_password }}` |
+      > Aby ustawic wlasne haslo, dodaj `GRAFANA_ADMIN_USER` i `GRAFANA_ADMIN_PASSWORD` w GitHub Secrets → Settings → Secrets and variables → Actions.
 
       ---
       ### Informacje
