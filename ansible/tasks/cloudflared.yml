@@ -2,14 +2,19 @@
 # FAZA 2: Instalacja cloudflared (binarka ARM64)
 # =============================================================================
 
-- name: Pobranie binarki cloudflared dla ARM64
-  get_url:
-    url: "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
-    dest: "{{ cloudflared_bin }}"
-    mode: "0755"
-    force: true
+- name: Pobranie binarki cloudflared dla ARM64 z S3
+  command:
+    cmd: aws s3 cp "s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/bin/cloudflared-linux-arm64" "{{ cloudflared_bin }}"
+    creates: "{{ cloudflared_bin }}"
+  environment:
+    AWS_DEFAULT_REGION: "{{ lookup('env', 'AWS_REGION') }}"
   retries: 3
   delay: 5
+
+- name: Nadanie uprawnien wykonywalnych
+  file:
+    path: "{{ cloudflared_bin }}"
+    mode: "0755"
 
 - name: Weryfikacja instalacji cloudflared
   command: "{{ cloudflared_bin }} version"

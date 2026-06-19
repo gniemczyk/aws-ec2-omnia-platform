@@ -149,6 +149,28 @@ jobs:
         uses: actions/checkout@v4
 
       # =====================================================================
+      # KROK 1b: Pobranie cloudflared i upload do S3
+      # Instancja EC2 nie ma publicznego IPv4, tylko IPv6 przez Egress-Only IGW.
+      # GitHub releases nie sa osiagalne przez IPv6 - pobieramy w runnerze
+      # i udostepniamy przez S3 (osiagalny przez VPC Gateway Endpoint - darmowy).
+      # =====================================================================
+      - name: Pobranie cloudflared i upload do S3
+        env:
+          SSM_S3_BUCKET_NAME: ${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}
+        run: |
+          echo "Pobieranie cloudflared-linux-arm64..."
+          curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64" \
+            -o /tmp/cloudflared-linux-arm64
+          chmod +x /tmp/cloudflared-linux-arm64
+
+          echo "Upload do S3..."
+          aws s3 cp /tmp/cloudflared-linux-arm64 \
+            "s3://${SSM_S3_BUCKET_NAME}/bin/cloudflared-linux-arm64" \
+            --region ${{ steps.ssm-params.outputs.aws_region }}
+
+          echo "cloudflared gotowy w S3"
+
+      # =====================================================================
       # KROK 2: Uruchomienie instancji EC2
       # =====================================================================
       - name: Uruchomienie instancji EC2
