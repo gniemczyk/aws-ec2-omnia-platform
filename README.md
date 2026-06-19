@@ -1,4 +1,4 @@
-# AWS EC2 Omnia Platform (DevOps Portfolio Project)
+# AWS EC2 Omnia Platform
 
 Wszechstronna platforma EC2 z kontenerami Docker, sterowana plikiem `apps.json` i katalogiem `app/`. Uruchamiana jednym kliknięciem w GitHub Actions. Zero otwartych portów, zero SSH, zero hardcode. Zoptymalizowana kosztowo dzięki rezygnacji z publicznego adresu IPv4 – instancja posiada wyłącznie IPv6, a z klasycznym internetem komunikuje się przez "ukryte" wyjście na świat via Cloudflare WARP.
 
