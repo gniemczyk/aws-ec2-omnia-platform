@@ -1,0 +1,57 @@
+# =============================================================================
+# FAZA 6: Ekstrakcja URL-i tuneli i generowanie raportu Markdown
+# =============================================================================
+
+- name: Oczekiwanie na nawiazanie tuneli
+  pause:
+    seconds: "{{ tunnel_wait_seconds }}"
+
+- name: Ekstrakcja URL-i tuneli z logow
+  shell: |
+    grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' {{ tunnel_log_dir }}/{{ item.name }}.log | head -1
+  loop: "{{ apps }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: tunnel_urls
+  retries: 3
+  delay: 3
+  until: tunnel_urls.stdout | length > 0
+  ignore_errors: true
+
+- name: Generowanie tabeli wynikow w formacie Markdown
+  copy:
+    content: |
+      ## {{ platform_name }} - Aktywne uslugi (KOPIUJ/WKLEJ linki)
+
+      | Aplikacja | Obraz | Port | Publiczny URL (Cloudflare) |
+      |-----------|-------|------|---------------------------|
+      {% for result in tunnel_urls.results %}
+      | {{ result.item.name }} | `{{ result.item.image }}` | {{ result.item.port }} | [Link]({{ result.stdout | default('oczekiwanie...') }}) - \`{{ result.stdout | default('oczekiwanie...') }}\` |
+      {% endfor %}
+
+      {% set app_graf = vars.get('app_grafana', {}) %}
+      {% if app_graf is mapping and app_graf.env_extra is defined and app_graf.env_extra.GF_SECURITY_ADMIN_USER | length > 0 and app_graf.env_extra.GF_SECURITY_ADMIN_PASSWORD | length > 0 %}
+      ### 🔐 Grafana - dane logowania
+      | Parametr | Wartosc |
+      |----------|---------|
+      | Login | `{{ app_graf.env_extra.GF_SECURITY_ADMIN_USER }}` |
+      | Password | `{{ app_graf.env_extra.GF_SECURITY_ADMIN_PASSWORD }}` |
+      {% endif %}
+
+      ---
+      ### Informacje
+      - **Wygenerowano:** {{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ')) }}
+      - **Instancja:** {{ ansible_host | default(lookup('env', 'EC2_INSTANCE_ID')) }}
+      - **Typ tunneli:** Cloudflare Quick Tunnels (efemeryczne - zmieniaja sie przy kazdym uruchomieniu)
+      - **Dostepnosc:** Tylko online gdy EC2 dziala
+    dest: "{{ results_file }}"
+    mode: "0644"
+
+- name: Odczyt wygenerowanego raportu
+  slurp:
+    src: "{{ results_file }}"
+  register: markdown_report
+
+- name: Wyswietlenie koncowego raportu
+  debug:
+    msg: "{{ markdown_report.content | b64decode }}"

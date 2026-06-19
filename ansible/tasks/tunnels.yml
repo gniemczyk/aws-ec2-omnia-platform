@@ -1,0 +1,30 @@
+# =============================================================================
+# FAZA 5: Uruchomienie szybkich tuneli Cloudflare
+# =============================================================================
+
+- name: Utworzenie katalogu logow tuneli
+  file:
+    path: "{{ tunnel_log_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Zakonczenie istniejacych procesow cloudflared
+  shell: pkill -f cloudflared || true
+  changed_when: true
+
+- name: Uruchomienie Cloudflare Quick Tunnel dla kazdej aplikacji
+  shell: |
+    nohup {{ cloudflared_bin }} tunnel --url http://localhost:{{ item.port }} \
+      > {{ tunnel_log_dir }}/{{ item.name }}.log 2>&1 &
+    echo $!
+  loop: "{{ apps }}"
+  loop_control:
+    label: "{{ item.name }} -> localhost:{{ item.port }}"
+  register: tunnel_pids
+
+- name: Wyswietlenie PID-ow tuneli
+  debug:
+    msg: "Tunel dla {{ item.item.name }}: PID {{ item.stdout }}"
+  loop: "{{ tunnel_pids.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"

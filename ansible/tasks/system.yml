@@ -1,0 +1,29 @@
+# =============================================================================
+# FAZA 1: Przygotowanie systemu
+# =============================================================================
+
+- name: Oczekiwanie na zakonczenie cloud-init
+  command: cloud-init status --wait
+  changed_when: false
+  timeout: 300
+
+- name: Aktualizacja cache apt
+  apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Instalacja wymaganych pakietow systemowych
+  apt:
+    name:
+      - docker.io
+      - docker-compose
+      - jq
+      - curl
+      - ca-certificates
+    state: present
+
+- name: Uruchomienie i wlaczenie uslugi Docker
+  systemd:
+    name: docker
+    state: started
+    enabled: true
