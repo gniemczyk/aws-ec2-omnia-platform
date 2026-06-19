@@ -170,6 +170,37 @@ jobs:
 
           echo "cloudflared gotowy w S3"
 
+      - name: Nadanie uprawnien IAM do odczytu S3 dla instancji EC2
+        env:
+          SSM_S3_BUCKET_NAME: ${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}
+          PLATFORM_NAME: ${{ steps.ssm-params.outputs.platform_name }}
+        run: |
+          ROLE_NAME="${PLATFORM_NAME}-ec2-role"
+          POLICY_NAME="s3-bin-read-${PLATFORM_NAME}"
+          BUCKET_NAME="${SSM_S3_BUCKET_NAME}"
+
+          POLICY=$(cat <<EOF
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::${BUCKET_NAME}/bin/*"
+              }
+            ]
+          }
+          EOF
+          )
+
+          echo "Dodawanie polityki S3 read do roli ${ROLE_NAME}..."
+          aws iam put-role-policy \
+            --role-name "$ROLE_NAME" \
+            --policy-name "$POLICY_NAME" \
+            --policy-document "$POLICY"
+
+          echo "Uprawnienia S3 dodane do roli ${ROLE_NAME}"
+
       # =====================================================================
       # KROK 2: Uruchomienie instancji EC2
       # =====================================================================

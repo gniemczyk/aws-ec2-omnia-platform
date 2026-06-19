@@ -68,3 +68,9 @@ variable "additional_tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "ssm_s3_bucket_name" {
+  description = "Nazwa bucketa S3 uzywanego przez Ansible SSM connection plugin"
+  type        = string
+  default     = ""
+}

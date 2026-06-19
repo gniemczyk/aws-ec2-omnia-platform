@@ -270,6 +270,28 @@ resource "aws_iam_role_policy_attachment" "ssm_core" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# Polityka odczytu S3 dla bucketa SSM - wymagana do pobierania plikow
+# (cloudflared, apps.json) przez Ansible na instancji bez publicznego IPv4
+resource "aws_iam_role_policy" "ssm_s3_read" {
+  count = var.ssm_s3_bucket_name != "" ? 1 : 0
+  name  = "s3-ssm-bin-read"
+  role  = aws_iam_role.platform_instance.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = "s3:GetObject"
+        Resource = [
+          "arn:aws:s3:::${var.ssm_s3_bucket_name}/bin/*",
+          "arn:aws:s3:::${var.ssm_s3_bucket_name}/apps/*"
+        ]
+      }
+    ]
+  })
+}
+
 resource "aws_iam_instance_profile" "platform_instance" {
   name = "${local.name_prefix}-instance-profile"
   role = aws_iam_role.platform_instance.name
