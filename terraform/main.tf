@@ -270,23 +270,33 @@ resource "aws_iam_role_policy_attachment" "ssm_core" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# Polityka odczytu S3 dla bucketa SSM - wymagana do pobierania plikow
-# (cloudflared, apps.json) przez Ansible na instancji bez publicznego IPv4
-resource "aws_iam_role_policy" "ssm_s3_read" {
+# Polityka odczytu S3 i zapisu SSM - wymagana przez Ansible na instancji
+resource "aws_iam_role_policy" "platform_access" {
   count = var.ssm_s3_bucket_name != "" ? 1 : 0
-  name  = "s3-ssm-bin-read"
+  name  = "platform-access"
   role  = aws_iam_role.platform_instance.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "S3BinRead"
         Effect = "Allow"
         Action = "s3:GetObject"
         Resource = [
           "arn:aws:s3:::${var.ssm_s3_bucket_name}/bin/*",
           "arn:aws:s3:::${var.ssm_s3_bucket_name}/apps/*"
         ]
+      },
+      {
+        Sid    = "SSMGrafanaAccess"
+        Effect = "Allow"
+        Action = [
+          "ssm:PutParameter",
+          "ssm:GetParameter",
+          "ssm:DeleteParameter"
+        ]
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/omnia/GRAFANA_*"
       }
     ]
   })

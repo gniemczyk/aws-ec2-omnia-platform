@@ -170,13 +170,13 @@ jobs:
 
           echo "cloudflared gotowy w S3"
 
-      - name: Nadanie uprawnien IAM do odczytu S3 dla instancji EC2
+      - name: Nadanie uprawnien IAM do odczytu S3 i SSM dla instancji EC2
         env:
           SSM_S3_BUCKET_NAME: ${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}
           PLATFORM_NAME: ${{ steps.ssm-params.outputs.platform_name }}
         run: |
           ROLE_NAME="${PLATFORM_NAME}-ec2-role"
-          POLICY_NAME="s3-bin-read-${PLATFORM_NAME}"
+          POLICY_NAME="s3-ssm-access-${PLATFORM_NAME}"
           BUCKET_NAME="${SSM_S3_BUCKET_NAME}"
 
           POLICY=$(cat <<EOF
@@ -187,13 +187,21 @@ jobs:
                 "Effect": "Allow",
                 "Action": "s3:GetObject",
                 "Resource": "arn:aws:s3:::${BUCKET_NAME}/bin/*"
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "ssm:PutParameter",
+                  "ssm:DeleteParameter"
+                ],
+                "Resource": "arn:aws:ssm:${{ steps.ssm-params.outputs.aws_region }}:$(aws sts get-caller-identity --query Account --output text):parameter/omnia/GRAFANA_*"
               }
             ]
           }
           EOF
           )
 
-          echo "Dodawanie polityki S3 read do roli ${ROLE_NAME}..."
+          echo "Dodawanie polityki S3+SSM do roli ${ROLE_NAME}..."
           aws iam put-role-policy \
             --role-name "$ROLE_NAME" \
             --policy-name "$POLICY_NAME" \

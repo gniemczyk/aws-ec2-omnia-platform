@@ -201,6 +201,8 @@ jobs:
           aws ssm delete-parameter --name "/omnia/PLATFORM_BASE_DIR" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /omnia/PLATFORM_BASE_DIR" || echo "  ℹ️  /omnia/PLATFORM_BASE_DIR nie istnieje"
           aws ssm delete-parameter --name "/omnia/TFSTATE_BUCKET_SUFFIX" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /omnia/TFSTATE_BUCKET_SUFFIX" || echo "  ℹ️  /omnia/TFSTATE_BUCKET_SUFFIX nie istnieje"
           aws ssm delete-parameter --name "/omnia/TFSTATE_BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /omnia/TFSTATE_BUCKET_NAME" || echo "  ℹ️  /omnia/TFSTATE_BUCKET_NAME nie istnieje"
+          aws ssm delete-parameter --name "/omnia/GRAFANA_ADMIN_USER" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /omnia/GRAFANA_ADMIN_USER" || echo "  ℹ️  /omnia/GRAFANA_ADMIN_USER nie istnieje"
+          aws ssm delete-parameter --name "/omnia/GRAFANA_ADMIN_PASSWORD" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /omnia/GRAFANA_ADMIN_PASSWORD" || echo "  ℹ️  /omnia/GRAFANA_ADMIN_PASSWORD nie istnieje"
           
           echo ""
           echo "✅ Parametry SSM usunięte"
