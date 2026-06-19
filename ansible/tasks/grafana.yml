@@ -15,6 +15,7 @@
   no_log: true
   environment:
     AWS_DEFAULT_REGION: "{{ lookup('env', 'AWS_REGION') }}"
+    AWS_USE_DUALSTACK_ENDPOINT: "true"
   when: grafana_admin_password | length == 0
 
 - name: Uzycie hasla z SSM jesli istnieje
@@ -37,6 +38,8 @@
   register: new_password
   when: grafana_admin_password | length == 0
   no_log: true
+  environment:
+    AWS_USE_DUALSTACK_ENDPOINT: "true"
 
 - name: Zapisanie wygenerowanego hasla do faktu
   set_fact:
@@ -49,9 +52,13 @@
     cmd: aws ssm put-parameter --name "/omnia/GRAFANA_ADMIN_PASSWORD" --value "{{ grafana_admin_password }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }}
   when: grafana_admin_password | length > 0
   no_log: true
+  environment:
+    AWS_USE_DUALSTACK_ENDPOINT: "true"
 
 - name: Zapis uzytkownika Grafana do SSM
   command:
     cmd: aws ssm put-parameter --name "/omnia/GRAFANA_ADMIN_USER" --value "{{ grafana_admin_user }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }}
   changed_when: false
   when: grafana_admin_user | length > 0
+  environment:
+    AWS_USE_DUALSTACK_ENDPOINT: "true"
