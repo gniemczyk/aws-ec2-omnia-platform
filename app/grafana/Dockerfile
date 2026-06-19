@@ -12,9 +12,9 @@ FROM grafana/grafana-oss:11.0.0
 # (docker-compose.yml lub AWS Secrets Manager), NIE hardcode'owanie
 ENV GF_SECURITY_ADMIN_USER=admin
 # ENV GF_SECURITY_ADMIN_PASSWORD - Ustaw w runtime z bezpiecznego zrodla!
-# Opcjonalnie: kopiowanie wlasnych dashboardow lub konfiguracji
-# COPY provisioning/ /etc/grafana/provisioning/
-# COPY dashboards/ /var/lib/grafana/dashboards/
+# CloudWatch datasource + EC2 dashboard
+COPY provisioning/ /etc/grafana/provisioning/
+COPY dashboards/ /var/lib/grafana/dashboards/
 
 # Uruchomienie kontenera z non-root userem (grafana:grafana)
 USER grafana

@@ -297,6 +297,26 @@ resource "aws_iam_role_policy" "platform_access" {
           "ssm:DeleteParameter"
         ]
         Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/GRAFANA_*"
+      },
+      {
+        Sid    = "CloudWatchReadOnly"
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:ListMetrics",
+          "cloudwatch:GetMetricData",
+          "cloudwatch:DescribeAlarms"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "EC2ReadOnly"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances",
+          "ec2:DescribeTags",
+          "ec2:DescribeRegions"
+        ]
+        Resource = "*"
       }
     ]
   })
