@@ -298,15 +298,25 @@ jobs:
           PLATFORM_NAME: ${{ steps.ssm-params.outputs.platform_name }}
           PLATFORM_BASE_DIR: ${{ steps.ssm-params.outputs.platform_base_dir }}
           SSM_S3_BUCKET_NAME: ${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}
+          GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
+          GRAFANA_PASS: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
           ANSIBLE_HOST_KEY_CHECKING: "False"
         run: |
+          EXTRA_VARS=""
+          if [ -n "$GRAFANA_USER" ]; then
+            EXTRA_VARS="$EXTRA_VARS grafana_admin_user=$GRAFANA_USER"
+          fi
+          if [ -n "$GRAFANA_PASS" ]; then
+            EXTRA_VARS="$EXTRA_VARS grafana_admin_password=$GRAFANA_PASS"
+          fi
+
           cd ansible
 
           ansible-playbook playbook.yml \
             -i inventory.yml \
             -vvvv \
             --timeout 120 \
-            --extra-vars "grafana_admin_user=${{ secrets.GRAFANA_ADMIN_USER }} grafana_admin_password=${{ secrets.GRAFANA_ADMIN_PASSWORD }}"
+            --extra-vars "$EXTRA_VARS"
 
       # =====================================================================
       # KROK 7: Pobranie URL-i tuneli i publikacja w podsumowaniu
