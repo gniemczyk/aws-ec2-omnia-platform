@@ -8,6 +8,12 @@
     enabled: yes
     state: started
 
+- name: Instalacja gnupg (wymagane dla komendy gpg)
+  ansible.builtin.apt:
+    name: gnupg
+    state: present
+    update_cache: yes
+
 - name: Dodanie klucza GPG Cloudflare
   ansible.builtin.get_url:
     url: https://pkg.cloudflareclient.com/pubkey.gpg
