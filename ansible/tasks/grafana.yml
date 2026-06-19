@@ -7,8 +7,9 @@
 # =============================================================================
 
 - name: Sprawdzenie czy haslo Grafana istnieje w SSM
-  command:
-    cmd: aws ssm get-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" --query 'Parameter.Value' --output text
+  shell:
+    cmd: timeout 15 aws ssm get-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" --query 'Parameter.Value' --output text 2>/dev/null || true
+    executable: /bin/bash
   register: ssm_password_result
   failed_when: false
   changed_when: false
@@ -31,9 +32,9 @@
 - name: Generowanie losowego hasla i zapis do SSM
   shell: |
     NEW_PASS=$(openssl rand -hex 12)
-    aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" \
+    timeout 15 aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" \
       --value "$NEW_PASS" --type "String" --overwrite \
-      --region {{ lookup('env', 'AWS_REGION') }} >/dev/null 2>&1
+      --region {{ lookup('env', 'AWS_REGION') }} >/dev/null 2>&1 || true
     printf '%s' "$NEW_PASS"
   register: new_password
   when: grafana_admin_password | length == 0
