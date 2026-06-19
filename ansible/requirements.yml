@@ -2,11 +2,12 @@
 # Instalacja: ansible-galaxy collection install -r requirements.yml
 ---
 collections:
-  # Pinning do 7.x/8.x - aws_ssm w 9.x+ ma regresje:
+  # Pinning do 9.2.0+ - wczesniejsze wersje maja bug w aws_ssm:
   # 'expected string or bytes-like object, got NoneType' podczas Gathering Facts
+  # (regresja w 7.x/8.x, naprawione w 9.2.0)
   - name: community.aws
-    version: ">=7.0.0,<9.0.0"
+    version: ">=9.2.0,<10.0.0"
   - name: amazon.aws
-    version: ">=7.0.0,<9.0.0"
+    version: ">=9.2.0,<10.0.0"
   - name: community.docker
     version: ">=3.0.0"
