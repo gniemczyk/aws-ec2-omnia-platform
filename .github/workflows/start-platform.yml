@@ -314,7 +314,7 @@ jobs:
 
           ansible-playbook playbook.yml \
             -i inventory.yml \
-            -vvvv \
+            -v \
             --timeout 120 \
             --extra-vars "$EXTRA_VARS"
 
