@@ -4,9 +4,7 @@
     "image": "grafana/grafana-oss:latest",
     "port": 3000,
     "compose": true,
-    "env": [
-      "GF_INSTALL_PLUGINS=grafana-clock-panel"
-    ]
+    "env": []
   },
   {
     "name": "api",
