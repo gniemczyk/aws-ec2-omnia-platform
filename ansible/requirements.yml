@@ -2,12 +2,11 @@
 # Instalacja: ansible-galaxy collection install -r requirements.yml
 ---
 collections:
-  # Pinning do 9.2.0+ - wczesniejsze wersje maja bug w aws_ssm:
-  # 'expected string or bytes-like object, got NoneType' podczas Gathering Facts
-  # (regresja w 7.x/8.x, naprawione w 9.2.0)
+  # Szeroki zakres wersji - bucket S3 jest przekazywany jawnie do aws_ssm
+  # przez ansible_aws_ssm_bucket_name, co omija bug z NoneType
   - name: community.aws
-    version: ">=9.2.0,<10.0.0"
+    version: ">=7.0.0,<10.0.0"
   - name: amazon.aws
-    version: ">=9.2.0,<10.0.0"
+    version: ">=7.0.0,<10.0.0"
   - name: community.docker
     version: ">=3.0.0"

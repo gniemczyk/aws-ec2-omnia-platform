@@ -29,5 +29,9 @@ all:
       # Sciezka do pluginu Session Manager
       ansible_aws_ssm_plugin: "{{ lookup('env', 'SSM_PLUGIN_PATH') | default('/usr/local/sessionmanagerplugin/bin/session-manager-plugin', true) }}"
 
+      # Bucket S3 dla wyjscia sesji SSM - wymagany przez aws_ssm connection plugin,
+      # ktory w niektorych wersjach crashuje z NoneType gdy bucket nie jest podany
+      ansible_aws_ssm_bucket_name: "{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}"
+
       # Interpreter Python na Debian
       ansible_python_interpreter: /usr/bin/python3

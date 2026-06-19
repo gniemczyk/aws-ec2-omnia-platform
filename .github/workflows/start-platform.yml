@@ -96,6 +96,7 @@ jobs:
           AWS_REGION=$(aws ssm get-parameter --name "/omnia/AWS_REGION" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
           PLATFORM_NAME=$(aws ssm get-parameter --name "/omnia/PLATFORM_NAME" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
           PLATFORM_BASE_DIR=$(aws ssm get-parameter --name "/omnia/PLATFORM_BASE_DIR" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "/opt/omnia")
+          SSM_S3_BUCKET_NAME=$(aws ssm get-parameter --name "/omnia/TFSTATE_BUCKET_NAME" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
           
           # Walidacja pobranych parametrow
           if [ -z "$EC2_INSTANCE_ID" ] || [ "$EC2_INSTANCE_ID" == "None" ]; then
@@ -113,18 +114,26 @@ jobs:
             echo "::error::Brakuje parametru SSM: /omnia/PLATFORM_NAME"
             exit 1
           fi
+
+          if [ -z "$SSM_S3_BUCKET_NAME" ] || [ "$SSM_S3_BUCKET_NAME" == "None" ]; then
+            echo "::error::Brakuje parametru SSM: /omnia/TFSTATE_BUCKET_NAME"
+            echo "::notice::Bucket S3 jest wymagany przez Ansible SSM connection plugin"
+            exit 1
+          fi
           
           # Ustawienie output variables
           echo "ec2_instance_id=$EC2_INSTANCE_ID" >> $GITHUB_OUTPUT
           echo "aws_region=$AWS_REGION" >> $GITHUB_OUTPUT
           echo "platform_name=$PLATFORM_NAME" >> $GITHUB_OUTPUT
           echo "platform_base_dir=$PLATFORM_BASE_DIR" >> $GITHUB_OUTPUT
+          echo "ssm_s3_bucket_name=$SSM_S3_BUCKET_NAME" >> $GITHUB_OUTPUT
           
           echo "✅ Parametry pobrane z SSM Parameter Store"
           echo "Instance ID: $EC2_INSTANCE_ID"
           echo "Region: $AWS_REGION"
           echo "Platform: $PLATFORM_NAME"
           echo "Base Dir: $PLATFORM_BASE_DIR"
+          echo "S3 Bucket: $SSM_S3_BUCKET_NAME"
 
       - name: Konfiguracja poswiadczen AWS (OIDC) - Terraform
         uses: aws-actions/configure-aws-credentials@v4
@@ -235,6 +244,7 @@ jobs:
           AWS_REGION: ${{ steps.ssm-params.outputs.aws_region }}
           PLATFORM_NAME: ${{ steps.ssm-params.outputs.platform_name }}
           PLATFORM_BASE_DIR: ${{ steps.ssm-params.outputs.platform_base_dir }}
+          SSM_S3_BUCKET_NAME: ${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}
           ANSIBLE_HOST_KEY_CHECKING: "False"
         run: |
           cd ansible
