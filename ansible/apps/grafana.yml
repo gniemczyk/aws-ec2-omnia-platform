@@ -10,3 +10,5 @@
 env_extra:
   GF_SECURITY_ADMIN_USER: "{{ grafana_admin_user }}"
   GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
+  AWS_USE_DUALSTACK_ENDPOINT: "true"
+  AWS_DEFAULT_REGION: "{{ lookup('env', 'AWS_REGION') | default('eu-central-1', true) }}"
