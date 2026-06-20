@@ -15,15 +15,14 @@
       - jq
     state: present
 
-- name: Dodanie klucza GPG Docker
-  ansible.builtin.get_url:
-    url: https://download.docker.com/linux/debian/gpg
-    dest: /tmp/docker-gpg.key
-    mode: '0644'
+- name: Pobranie klucza GPG Docker z S3 (zamiast direct internet przez WARP)
+  ansible.builtin.shell:
+    cmd: aws s3 cp "s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/bin/docker.gpg" /tmp/docker.gpg
+    creates: /tmp/docker.gpg
 
 - name: Konwersja klucza GPG Docker (dearmor)
   ansible.builtin.command:
-    cmd: gpg --yes --dearmor --output /usr/share/keyrings/docker-archive-keyring.gpg /tmp/docker-gpg.key
+    cmd: gpg --yes --dearmor --output /usr/share/keyrings/docker-archive-keyring.gpg /tmp/docker.gpg
     creates: /usr/share/keyrings/docker-archive-keyring.gpg
 
 - name: Dodanie repozytorium APT Docker (arm64)
