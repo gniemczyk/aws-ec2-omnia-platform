@@ -416,6 +416,64 @@ jobs:
           echo "IAM Role: $IAM_ROLE"
 
       # =====================================================================
+      # KROK 10.5: Oczekiwanie na status check 2/2 instancji EC2
+      # =====================================================================
+      # Instancja po terraform apply musi:
+      #   1. Przejsc boot
+      #   2. Wykonac user_data (instalacja SSM Agent)
+      #   3. Zarejestrowac SSM Agent w AWS
+      # Dopiero po przejsciu obu status checkow (system + instance = 2/2)
+      # instancja jest gotowa do uzycia przez 'Uruchom Platform'.
+      # Bez tego kroku uzytkownik moze odpalic start-platform.yml zbyt wczesnie.
+      # =====================================================================
+      - name: Oczekiwanie na status check 2/2 instancji EC2
+        run: |
+          INSTANCE_ID="${{ steps.terraform-output.outputs.instance_id }}"
+          AWS_REGION="${{ env.AWS_REGION }}"
+          
+          echo "⏳ Oczekiwanie na status check 2/2 dla instancji $INSTANCE_ID..."
+          echo "   (system reachability + instance reachability)"
+          echo "   Obejmuje: boot OS, wykonanie user_data, uruchomienie SSM Agent"
+          echo ""
+          
+          # aws ec2 wait instance-status-ok czeka az oba status checks przejda (2/2)
+          # Domyslny timeout: 40 prob x 15s = 600s (10 min)
+          aws ec2 wait instance-status-ok \
+            --instance-ids "$INSTANCE_ID" \
+            --region "$AWS_REGION"
+          
+          echo "✅ Instancja przeszla status check 2/2"
+          
+          # Dodatkowa weryfikacja - sprawdzenie czy SSM Agent jest Online
+          echo ""
+          echo "🔍 Weryfikacja gotowosci SSM Agent..."
+          MAX_RETRIES=12
+          RETRY_INTERVAL=10
+          
+          for i in $(seq 1 $MAX_RETRIES); do
+            SSM_STATUS=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+              --query 'InstanceInformationList[0].PingStatus' \
+              --region "$AWS_REGION" \
+              --output text 2>/dev/null || echo "None")
+            
+            if [ "$SSM_STATUS" == "Online" ]; then
+              echo "✅ SSM Agent jest Online (proba $i/$MAX_RETRIES)"
+              echo "   Instancja jest w pelni gotowa do uzycia przez 'Uruchom Platform'"
+              break
+            fi
+            
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "::warning::SSM Agent nie jest jeszcze Online po $((MAX_RETRIES * RETRY_INTERVAL))s"
+              echo "::warning::Instancja moze potrzebowac dodatkowego czasu - poczekaj 1-2 min przed uruchomieniem 'Uruchom Platform'"
+              break
+            fi
+            
+            echo "  Proba $i/$MAX_RETRIES - SSM: $SSM_STATUS - czekam ${RETRY_INTERVAL}s..."
+            sleep $RETRY_INTERVAL
+          done
+
+      # =====================================================================
       # KROK 11: Zapis Terraform outputs do AWS SSM Parameter Store
       # =====================================================================
       - name: Zapis parametrow do AWS SSM
