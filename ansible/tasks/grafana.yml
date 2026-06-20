@@ -50,7 +50,7 @@
 
 - name: Zapis hasla Grafana do SSM (persystencja)
   shell:
-    cmd: timeout 15 aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" --value "{{ grafana_admin_password }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }}
+    cmd: timeout 15 aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" --value "{{ grafana_admin_password }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }} || true
   when: grafana_admin_password | length > 0
   no_log: true
   environment:
