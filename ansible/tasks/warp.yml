@@ -55,6 +55,12 @@
   changed_when: false
   failed_when: false
 
+- name: Usunięcie starej rejestracji (jeśli istnieje)
+  ansible.builtin.command: warp-cli --accept-tos registration delete
+  when: warp_reg_status.rc != 0
+  failed_when: false
+  changed_when: false
+
 - name: Rejestracja nowej instancji WARP
   ansible.builtin.command: warp-cli --accept-tos registration new
   when: warp_reg_status.rc != 0
