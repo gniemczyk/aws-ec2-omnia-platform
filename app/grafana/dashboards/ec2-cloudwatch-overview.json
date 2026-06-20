@@ -23,7 +23,7 @@
       "targets": [
         {
           "refId": "A",
-          "region": "default",
+          "region": "$region",
           "namespace": "AWS/EC2",
           "metricName": "CPUUtilization",
           "dimensions": {
@@ -85,7 +85,7 @@
       "targets": [
         {
           "refId": "A",
-          "region": "default",
+          "region": "$region",
           "namespace": "AWS/EC2",
           "metricName": "CPUUtilization",
           "dimensions": {
@@ -170,7 +170,7 @@
       "targets": [
         {
           "refId": "A",
-          "region": "default",
+          "region": "$region",
           "namespace": "AWS/EC2",
           "metricName": "StatusCheckFailed",
           "dimensions": {
@@ -254,7 +254,7 @@
       "targets": [
         {
           "refId": "A",
-          "region": "default",
+          "region": "$region",
           "namespace": "AWS/EC2",
           "metricName": "NetworkIn",
           "dimensions": {
@@ -270,7 +270,7 @@
         },
         {
           "refId": "B",
-          "region": "default",
+          "region": "$region",
           "namespace": "AWS/EC2",
           "metricName": "NetworkOut",
           "dimensions": {
@@ -357,7 +357,7 @@
       "targets": [
         {
           "refId": "A",
-          "region": "default",
+          "region": "$region",
           "namespace": "AWS/EC2",
           "metricName": "DiskReadOps",
           "dimensions": {
@@ -373,7 +373,7 @@
         },
         {
           "refId": "B",
-          "region": "default",
+          "region": "$region",
           "namespace": "AWS/EC2",
           "metricName": "DiskWriteOps",
           "dimensions": {
@@ -453,7 +453,7 @@
       "targets": [
         {
           "refId": "A",
-          "region": "default",
+          "region": "$region",
           "namespace": "AWS/EC2",
           "metricName": "CPUCreditBalance",
           "dimensions": {
@@ -538,7 +538,7 @@
       "targets": [
         {
           "refId": "A",
-          "region": "default",
+          "region": "$region",
           "namespace": "AWS/EC2",
           "metricName": "NetworkPacketsIn",
           "dimensions": {
@@ -554,7 +554,7 @@
         },
         {
           "refId": "B",
-          "region": "default",
+          "region": "$region",
           "namespace": "AWS/EC2",
           "metricName": "NetworkPacketsOut",
           "dimensions": {
@@ -634,7 +634,7 @@
       "targets": [
         {
           "refId": "A",
-          "region": "default",
+          "region": "$region",
           "namespace": "AWS/EC2",
           "metricName": "DiskReadBytes",
           "dimensions": {
@@ -650,7 +650,7 @@
         },
         {
           "refId": "B",
-          "region": "default",
+          "region": "$region",
           "namespace": "AWS/EC2",
           "metricName": "DiskWriteBytes",
           "dimensions": {
