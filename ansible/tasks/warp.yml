@@ -103,12 +103,15 @@
       [Install]
       WantedBy=multi-user.target
 
-- name: Przeładowanie systemd i uruchomienie usługi MTU
+- name: Przeładowanie systemd
   ansible.builtin.systemd:
     daemon_reload: yes
+
+- name: Uruchomienie usługi MTU
+  ansible.builtin.systemd:
     name: warp-mtu.service
     enabled: yes
-    state: restarted
+    state: started
 
 - name: Wymuszenie MTU natychmiastowo
   ansible.builtin.command: ip link set dev CloudflareWARP mtu 1100
