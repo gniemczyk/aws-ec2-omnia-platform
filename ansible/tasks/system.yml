@@ -7,14 +7,38 @@
     update_cache: true
     cache_valid_time: 3600
 
-- name: Instalacja wymaganych pakietow systemowych
+- name: Instalacja pakietow pomocniczych (wymagane dla repo Docker)
   apt:
     name:
-      - docker.io
-      - docker-compose-plugin  # v2 - nowoczesny 'docker compose' (bez myslnika)
-      - jq
-      - curl
       - ca-certificates
+      - curl
+      - jq
+    state: present
+
+- name: Dodanie klucza GPG Docker
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/debian/gpg
+    dest: /tmp/docker-gpg.key
+    mode: '0644'
+
+- name: Konwersja klucza GPG Docker (dearmor)
+  ansible.builtin.command:
+    cmd: gpg --yes --dearmor --output /usr/share/keyrings/docker-archive-keyring.gpg /tmp/docker-gpg.key
+    creates: /usr/share/keyrings/docker-archive-keyring.gpg
+
+- name: Dodanie repozytorium APT Docker (arm64)
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=arm64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bookworm stable"
+    state: present
+    filename: docker
+    update_cache: yes
+
+- name: Instalacja Docker Engine i Compose Plugin v2
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - docker-compose-plugin
     state: present
 
 - name: Uruchomienie i wlaczenie uslugi Docker
