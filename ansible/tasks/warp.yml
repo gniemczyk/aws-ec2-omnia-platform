@@ -42,12 +42,17 @@
     state: present
     update_cache: yes
 
-- name: Wyłączenie warp-taskbar.service (GUI niepotrzebne)
-  ansible.builtin.systemd:
-    name: warp-taskbar.service
-    enabled: no
-    state: stopped
-  ignore_errors: yes
+- name: Wyłączenie warp-taskbar.service (GUI niepotrzebne - ignoruj jeśli nie istnieje)
+  ansible.builtin.command: systemctl stop warp-taskbar.service
+  register: stop_taskbar
+  failed_when: false
+  changed_when: false
+
+- name: Wyłączenie warp-taskbar.service (GUI niepotrzebne - ignoruj jeśli nie istnieje)
+  ansible.builtin.command: systemctl disable warp-taskbar.service
+  register: disable_taskbar
+  failed_when: false
+  changed_when: false
 
 - name: Sprawdzenie statusu rejestracji WARP
   ansible.builtin.command: warp-cli registration show
@@ -71,10 +76,9 @@
 # Wykluczenie sieci AWS (VPC, Endpoints, SSM) z tunelu WARP
 - name: Wykluczenie adresów lokalnych VPC i AWS z tunelu WARP
   ansible.builtin.shell: |
-    warp-cli --accept-tos tunnel ip add-range 169.254.169.254/32 || true
-    warp-cli --accept-tos tunnel ip add-range 10.0.0.0/8 || true
-    warp-cli --accept-tos tunnel ip add-range 172.16.0.0/12 || true
-    warp-cli --accept-tos tunnel ip add-range 192.168.0.0/16 || true
+    for range in 169.254.169.254/32 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do
+        timeout 5 warp-cli --accept-tos tunnel ip add-range $range || true
+    done
   changed_when: false
 
 - name: Sprawdzenie wykluczeń tunelu WARP
