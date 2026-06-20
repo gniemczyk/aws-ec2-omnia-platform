@@ -48,22 +48,31 @@
   when: new_password is defined and new_password.stdout | default('') | length > 0
   no_log: true
 
-- name: Zapis hasla Grafana do SSM (persystencja)
-  command:
-    cmd: aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" --value "{{ grafana_admin_password }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }}
-  when: grafana_admin_password | length > 0
-  no_log: true
+- name: Pobierz obecne hasło z SSM
+  shell:
+    cmd: aws ssm get-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" --query 'Parameter.Value' --output text 2>/dev/null || echo ""
+  register: current_password
   environment:
     AWS_USE_DUALSTACK_ENDPOINT: "true"
-  async: 30
-  poll: 5
 
-- name: Zapis uzytkownika Grafana do SSM
+- name: Zapis hasła Grafana do SSM (tylko jeśli zmienione)
   command:
-    cmd: aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_USER" --value "{{ grafana_admin_user }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }}
-  changed_when: false
-  when: grafana_admin_user | length > 0
+    cmd: aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" --value "{{ grafana_admin_password }}" --type "String" --overwrite
+  when: current_password.stdout != grafana_admin_password
   environment:
     AWS_USE_DUALSTACK_ENDPOINT: "true"
-  async: 30
-  poll: 5
+  no_log: true
+
+- name: Pobierz obecnego użytkownika z SSM
+  shell:
+    cmd: aws ssm get-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_USER" --query 'Parameter.Value' --output text 2>/dev/null || echo ""
+  register: current_user
+  environment:
+    AWS_USE_DUALSTACK_ENDPOINT: "true"
+
+- name: Zapis użytkownika Grafana do SSM (tylko jeśli zmienione)
+  command:
+    cmd: aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_USER" --value "{{ grafana_admin_user }}" --type "String" --overwrite
+  when: current_user.stdout != grafana_admin_user
+  environment:
+    AWS_USE_DUALSTACK_ENDPOINT: "true"
