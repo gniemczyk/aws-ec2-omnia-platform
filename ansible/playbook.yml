@@ -24,7 +24,7 @@
     ssm_root: "/{{ platform_name }}"
 
     # Dane logowania do Grafany - nadpisywane przez --extra-vars (z GitHub Secrets)
-    # Jesli nie podane, zostanie wygenerowane losowe haslo podczas deployu
+    # Pobierane z SSM przez GitHub Actions
     grafana_admin_user: admin
     grafana_admin_password: ""
 
@@ -38,8 +38,9 @@
         grafana_admin_user: admin
       when: grafana_admin_user | length == 0
 
-    - name: FAZA 0b - Zarzadzanie haslem Grafana przez SSM
-      ansible.builtin.import_tasks: tasks/grafana.yml
+    - name: FAZA 0b - Zarzadzanie haslem Grafana
+      ansible.builtin.debug:
+        msg: "Hasło i użytkownik Grafana zostały przekazane przez extra-vars."
 
     # =========================================================================
     # Import faz
