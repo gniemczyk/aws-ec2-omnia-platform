@@ -29,12 +29,12 @@
       | {{ result.item.name }} | `{{ result.item.image }}` | {{ result.item.port }} | [Link]({{ result.stdout | default('oczekiwanie...') }}) - \`{{ result.stdout | default('oczekiwanie...') }}\` |
       {% endfor %}
 
-      ### 🔐 Grafana - dane logowania
+      ### Grafana - dane logowania
       | Parametr | Wartosc |
       |----------|---------|
       | Login | `{{ grafana_admin_user }}` |
-      | Haslo | `{{ grafana_admin_password }}` |
-      > Aby ustawic wlasne haslo, dodaj `GRAFANA_ADMIN_USER` i `GRAFANA_ADMIN_PASSWORD` w GitHub Secrets → Settings → Secrets and variables → Actions.
+      | Haslo | *Pobierz z SSM:* `aws ssm get-parameter --name {{ ssm_root }}/GRAFANA_ADMIN_PASSWORD --with-decryption --query Parameter.Value --output text` |
+      > Aby ustawic wlasne haslo, zapisz je w SSM jako SecureString pod kluczem `{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD`.
 
       ---
       ### Informacje

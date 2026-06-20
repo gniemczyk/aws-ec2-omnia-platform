@@ -19,7 +19,7 @@ on:
 
 permissions:
   id-token: write
-  contents: write
+  contents: read
 
 jobs:
   destroy-infrastructure:
@@ -149,7 +149,8 @@ jobs:
       - name: Instalacja Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ">= 1.5.0"
+          # Pinowana wersja - use_lockfile wymaga >= 1.10, reprodukowalnosc buildow
+          terraform_version: "1.12.0"
 
       # =====================================================================
       # KROK 7: Uwierzytelnianie do AWS przez OIDC

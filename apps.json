@@ -1,14 +1,14 @@
 [
   {
     "name": "grafana",
-    "image": "grafana/grafana-oss:latest",
+    "image": "grafana/grafana-oss:11.0.0",
     "port": 3000,
     "compose": true,
     "env": []
   },
   {
     "name": "api",
-    "image": "nginx:alpine",
+    "image": "nginx:1.27-alpine",
     "port": 80,
     "compose": false,
     "env": []

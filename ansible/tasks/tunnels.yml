@@ -8,8 +8,14 @@
     state: directory
     mode: "0755"
 
+- name: Sprawdzenie istniejacych procesow cloudflared
+  shell: pgrep -f '[c]loudflared' || true
+  register: existing_cloudflared
+  changed_when: false
+
 - name: Zakonczenie istniejacych procesow cloudflared
   shell: "pkill -f '[c]loudflared' || true"
+  when: existing_cloudflared.stdout | length > 0
   changed_when: true
 
 - name: Uruchomienie Cloudflare Quick Tunnel dla kazdej aplikacji
@@ -21,6 +27,7 @@
   loop_control:
     label: "{{ item.name }} -> localhost:{{ item.port }}"
   register: tunnel_pids
+  changed_when: true
 
 - name: Wyswietlenie PID-ow tuneli
   debug:

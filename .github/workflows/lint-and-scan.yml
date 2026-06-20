@@ -33,7 +33,8 @@ jobs:
       - name: Instalacja Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.9.0"
+          # Pinowana wersja - spatna ze wszystkimi workflow (use_lockfile wymaga >= 1.10)
+          terraform_version: "1.12.0"
 
       # =====================================================================
       # KROK 3: Sprawdzenie formatowania Terraform
@@ -41,15 +42,12 @@ jobs:
       - name: Sprawdzenie formatowania Terraform
         working-directory: terraform
         run: |
-          echo "🔍 Sprawdzenie formatowania plików Terraform..."
-          terraform fmt -check -recursive
-          if [ $? -eq 0 ]; then
-            echo "✅ Formatowanie OK"
-          else
-            echo "❌ Pliki Terraform mają złe formatowanie!"
-            echo "Uruchom: terraform fmt -recursive"
+          echo "Sprawdzenie formatowania plików Terraform..."
+          if ! terraform fmt -check -recursive; then
+            echo "::error::Pliki Terraform maja zle formatowanie! Uruchom: terraform fmt -recursive"
             exit 1
           fi
+          echo "Formatowanie OK"
 
       # =====================================================================
       # KROK 4: Inicjalizacja do walidacji
@@ -66,14 +64,12 @@ jobs:
       - name: Walidacja składni Terraform
         working-directory: terraform
         run: |
-          echo "✓ Walidacja składni Terraform..."
-          terraform validate -no-color
-          if [ $? -eq 0 ]; then
-            echo "✅ Składnia OK"
-          else
-            echo "❌ Błędy w składni Terraform!"
+          echo "Walidacja skladni Terraform..."
+          if ! terraform validate -no-color; then
+            echo "::error::Bledy w skladni Terraform!"
             exit 1
           fi
+          echo "Skladnia OK"
 
   security-scan:
     name: "Skanowanie Bezpieczeństwa (Trivy)"

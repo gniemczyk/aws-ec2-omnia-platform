@@ -43,16 +43,11 @@
     update_cache: yes
 
 - name: Wyłączenie warp-taskbar.service (GUI niepotrzebne - ignoruj jeśli nie istnieje)
-  ansible.builtin.command: systemctl stop warp-taskbar.service
-  register: stop_taskbar
+  ansible.builtin.systemd:
+    name: warp-taskbar.service
+    state: stopped
+    enabled: no
   failed_when: false
-  changed_when: false
-
-- name: Wyłączenie warp-taskbar.service (GUI niepotrzebne - ignoruj jeśli nie istnieje)
-  ansible.builtin.command: systemctl disable warp-taskbar.service
-  register: disable_taskbar
-  failed_when: false
-  changed_when: false
 
 - name: Sprawdzenie statusu rejestracji WARP
   ansible.builtin.command: warp-cli registration show
@@ -70,8 +65,16 @@
   ansible.builtin.command: warp-cli --accept-tos registration new
   when: warp_reg_status.rc != 0
 
+- name: Sprawdzenie aktualnego trybu WARP
+  ansible.builtin.command: warp-cli --accept-tos settings
+  register: warp_current_settings
+  changed_when: false
+  failed_when: false
+
 - name: Ustawienie trybu WARP (Mode WARP)
   ansible.builtin.command: warp-cli --accept-tos mode warp
+  when: "'warp' not in (warp_current_settings.stdout | default(''))"
+  changed_when: true
 
 # Wykluczenie sieci AWS (VPC, Endpoints, SSM) z tunelu WARP
 - name: Wykluczenie adresów lokalnych VPC i AWS z tunelu WARP
@@ -90,8 +93,16 @@
   ansible.builtin.command: warp-cli --accept-tos tunnel ip add-range 2606:4700::/32
   when: "'2606:4700::/32' not in warp_tunnel_list.stdout"
 
+- name: Sprawdzenie statusu polaczenia WARP
+  ansible.builtin.command: warp-cli --accept-tos status
+  register: warp_connection_status
+  changed_when: false
+  failed_when: false
+
 - name: Uruchomienie połączenia WARP
   ansible.builtin.command: warp-cli --accept-tos connect
+  when: "'Connected' not in (warp_connection_status.stdout | default(''))"
+  changed_when: true
 
 - name: Utworzenie pliku usługi systemd dla poprawki MTU (1100)
   ansible.builtin.copy:
@@ -122,19 +133,25 @@
       [Install]
       WantedBy=multi-user.target
 
-- name: Przeładowanie systemd
-  ansible.builtin.systemd:
-    daemon_reload: yes
-
 - name: Uruchomienie usługi MTU
   ansible.builtin.systemd:
     name: warp-mtu.service
     enabled: yes
     state: started
+    daemon_reload: yes
 
-- name: Wymuszenie MTU natychmiastowo
+- name: Sprawdzenie aktualnego MTU interfejsu CloudflareWARP
+  ansible.builtin.command: ip link show CloudflareWARP
+  register: warp_iface_info
+  changed_when: false
+  failed_when: false
+
+- name: Wymuszenie MTU natychmiastowo (jesli rozni sie od 1100)
   ansible.builtin.command: ip link set dev CloudflareWARP mtu 1100
-  ignore_errors: yes
+  when:
+    - warp_iface_info.rc == 0
+    - "'mtu 1100' not in warp_iface_info.stdout"
+  changed_when: true
 
 - name: Oczekiwanie na stabilizacje tunelu WARP i rutingu
   ansible.builtin.pause:

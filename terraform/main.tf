@@ -7,7 +7,8 @@
 # =============================================================================
 
 terraform {
-  required_version = ">= 1.5.0"
+  # Wymagana >= 1.10.0 z powodu uzycia 'use_lockfile=true' w backendzie S3
+  required_version = ">= 1.10.0"
 
   required_providers {
     aws = {

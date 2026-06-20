@@ -11,7 +11,7 @@
   apt:
     name:
       - docker.io
-      - docker-compose
+      - docker-compose-plugin  # v2 - nowoczesny 'docker compose' (bez myslnika)
       - jq
       - curl
       - ca-certificates
