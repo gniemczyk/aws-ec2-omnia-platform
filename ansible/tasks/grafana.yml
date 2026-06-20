@@ -57,8 +57,8 @@
     AWS_USE_DUALSTACK_ENDPOINT: "true"
 
 - name: Zapis uzytkownika Grafana do SSM
-  command:
-    cmd: aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_USER" --value "{{ grafana_admin_user }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }}
+  shell:
+    cmd: timeout 15 aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_USER" --value "{{ grafana_admin_user }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }} || true
   changed_when: false
   when: grafana_admin_user | length > 0
   environment:
