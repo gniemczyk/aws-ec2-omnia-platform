@@ -273,6 +273,30 @@ jobs:
             }' \
             --region ${{ env.AWS_REGION }}
 
+          echo "🗑️  Ustawianie lifecycle policy (limit wersji do 10)..."
+          aws s3api put-bucket-lifecycle-configuration \
+            --bucket "$BUCKET_NAME" \
+            --lifecycle-configuration '{
+              "Rules": [
+                {
+                  "ID": "LimitNoncurrentVersions",
+                  "Status": "Enabled",
+                  "Filter": {"Prefix": ""},
+                  "NoncurrentVersionExpiration": {
+                    "NoncurrentDays": 1,
+                    "NewerNoncurrentVersions": 10
+                  },
+                  "Expiration": {
+                    "ExpiredObjectDeleteMarker": true
+                  },
+                  "AbortIncompleteMultipartUpload": {
+                    "DaysAfterInitiation": 7
+                  }
+                }
+              ]
+            }' \
+            --region ${{ env.AWS_REGION }}
+
           echo ""
           echo "✅ Backend S3 gotowy!"
 
