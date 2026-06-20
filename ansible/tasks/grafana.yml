@@ -49,17 +49,21 @@
   no_log: true
 
 - name: Zapis hasla Grafana do SSM (persystencja)
-  shell:
-    cmd: timeout 15 aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" --value "{{ grafana_admin_password }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }} || true
+  command:
+    cmd: aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD" --value "{{ grafana_admin_password }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }}
   when: grafana_admin_password | length > 0
   no_log: true
   environment:
     AWS_USE_DUALSTACK_ENDPOINT: "true"
+  async: 30
+  poll: 5
 
 - name: Zapis uzytkownika Grafana do SSM
-  shell:
-    cmd: timeout 15 aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_USER" --value "{{ grafana_admin_user }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }} || true
+  command:
+    cmd: aws ssm put-parameter --name "{{ ssm_root }}/GRAFANA_ADMIN_USER" --value "{{ grafana_admin_user }}" --type "String" --overwrite --region {{ lookup('env', 'AWS_REGION') }}
   changed_when: false
   when: grafana_admin_user | length > 0
   environment:
     AWS_USE_DUALSTACK_ENDPOINT: "true"
+  async: 30
+  poll: 5
