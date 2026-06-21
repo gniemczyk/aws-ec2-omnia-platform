@@ -6,7 +6,7 @@
 # Region: kaskada AWS_REGION env → domyslny eu-central-1. BRAK hardcode.
 # =============================================================================
 
-- name: Ustawienie zmiennej regionu (kaskada: AWS_REGION env → domyslny)
+- name: "Ustawienie zmiennej regionu (kaskada: AWS_REGION env → domyslny)"
   set_fact:
     cw_agent_region: "{{ lookup('env', 'AWS_REGION') | default('eu-central-1', true) }}"
 
