@@ -715,7 +715,7 @@
     }
   ],
   "schemaVersion": 39,
-  "version": 3,
+  "version": 20,
   "links": [],
   "time": {
     "from": "now-6h",
@@ -760,8 +760,8 @@
       {
         "name": "instance_id",
         "type": "query",
-        "query": "ec2_instance_attribute($region, InstanceId, {})",
-        "definition": "ec2_instance_attribute($region, InstanceId, {})",
+        "query": "dimensionValues($region, AWS/EC2, InstanceId)",
+        "definition": "dimensionValues($region, AWS/EC2, InstanceId)",
         "datasource": {
           "type": "cloudwatch",
           "uid": "cloudwatch"
