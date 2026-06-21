@@ -306,7 +306,9 @@ resource "aws_iam_role_policy" "platform_access" {
           "cloudwatch:ListMetrics",
           "cloudwatch:GetMetricData",
           "cloudwatch:GetMetricStatistics",
-          "cloudwatch:DescribeAlarms"
+          "cloudwatch:DescribeAlarms",
+          "oam:ListSinks",
+          "oam:ListAttachedLinks"
         ]
         Resource = "*"
       },
