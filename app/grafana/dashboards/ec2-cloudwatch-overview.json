@@ -27,11 +27,11 @@
           "namespace": "AWS/EC2",
           "metricName": "CPUUtilization",
           "dimensions": {
-            "InstanceId": ["$instance_id"]
+            "InstanceId": "$instance_id"
           },
           "statistic": "SampleCount",
           "period": "300",
-          "matchExact": false,
+          "matchExact": true,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -89,11 +89,11 @@
           "namespace": "AWS/EC2",
           "metricName": "CPUUtilization",
           "dimensions": {
-            "InstanceId": ["$instance_id"]
+            "InstanceId": "$instance_id"
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": false,
+          "matchExact": true,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -174,11 +174,11 @@
           "namespace": "AWS/EC2",
           "metricName": "StatusCheckFailed",
           "dimensions": {
-            "InstanceId": ["$instance_id"]
+            "InstanceId": "$instance_id"
           },
           "statistic": "Sum",
           "period": "60",
-          "matchExact": false,
+          "matchExact": true,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -258,11 +258,11 @@
           "namespace": "AWS/EC2",
           "metricName": "NetworkIn",
           "dimensions": {
-            "InstanceId": ["$instance_id"]
+            "InstanceId": "$instance_id"
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": false,
+          "matchExact": true,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -274,11 +274,11 @@
           "namespace": "AWS/EC2",
           "metricName": "NetworkOut",
           "dimensions": {
-            "InstanceId": ["$instance_id"]
+            "InstanceId": "$instance_id"
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": false,
+          "matchExact": true,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -361,11 +361,11 @@
           "namespace": "AWS/EC2",
           "metricName": "DiskReadOps",
           "dimensions": {
-            "InstanceId": ["$instance_id"]
+            "InstanceId": "$instance_id"
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": false,
+          "matchExact": true,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -377,11 +377,11 @@
           "namespace": "AWS/EC2",
           "metricName": "DiskWriteOps",
           "dimensions": {
-            "InstanceId": ["$instance_id"]
+            "InstanceId": "$instance_id"
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": false,
+          "matchExact": true,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -457,11 +457,11 @@
           "namespace": "AWS/EC2",
           "metricName": "CPUCreditBalance",
           "dimensions": {
-            "InstanceId": ["$instance_id"]
+            "InstanceId": "$instance_id"
           },
           "statistic": "Minimum",
           "period": "300",
-          "matchExact": false,
+          "matchExact": true,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -542,11 +542,11 @@
           "namespace": "AWS/EC2",
           "metricName": "NetworkPacketsIn",
           "dimensions": {
-            "InstanceId": ["$instance_id"]
+            "InstanceId": "$instance_id"
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": false,
+          "matchExact": true,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -558,11 +558,11 @@
           "namespace": "AWS/EC2",
           "metricName": "NetworkPacketsOut",
           "dimensions": {
-            "InstanceId": ["$instance_id"]
+            "InstanceId": "$instance_id"
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": false,
+          "matchExact": true,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -638,11 +638,11 @@
           "namespace": "AWS/EC2",
           "metricName": "DiskReadBytes",
           "dimensions": {
-            "InstanceId": ["$instance_id"]
+            "InstanceId": "$instance_id"
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": false,
+          "matchExact": true,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -654,11 +654,11 @@
           "namespace": "AWS/EC2",
           "metricName": "DiskWriteBytes",
           "dimensions": {
-            "InstanceId": ["$instance_id"]
+            "InstanceId": "$instance_id"
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": false,
+          "matchExact": true,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
