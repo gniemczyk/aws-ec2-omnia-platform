@@ -715,7 +715,7 @@
     }
   ],
   "schemaVersion": 39,
-  "version": 1,
+  "version": 3,
   "links": [],
   "time": {
     "from": "now-6h",
