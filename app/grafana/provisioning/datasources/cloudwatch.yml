@@ -7,8 +7,9 @@ datasources:
     uid: cloudwatch
     jsonData:
       authType: ec2IAMRole
-      # Brak defaultRegion - region pochodzi z AWS_DEFAULT_REGION env var (ustawiany przez Ansible)
-      # Dashboard jawnie podaje region w kazdym panelu przez template variable $region
+      # Region pobierany ze zmiennej srodowiskowej - Grafana wspiera substytucje env vars
+      defaultRegion: eu-central-1
+      # Pozwól na popularne regiony, w tym te używane w projekcie
       regions:
         - eu-central-1
         - eu-north-1

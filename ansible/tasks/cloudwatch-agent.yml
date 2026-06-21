@@ -3,12 +3,16 @@
 # =============================================================================
 # Zbiera logi z kontenerow Docker i przesyla do CloudWatch Logs.
 # Wymaga: IAM role z logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents
-# Region pochodzi ze zmiennej playbooka (aws_region) - BRAK hardcode.
+# Region: kaskada AWS_REGION env → domyslny eu-central-1. BRAK hardcode.
 # =============================================================================
+
+- name: Ustawienie zmiennej regionu (kaskada: AWS_REGION env → domyslny)
+  set_fact:
+    cw_agent_region: "{{ lookup('env', 'AWS_REGION') | default('eu-central-1', true) }}"
 
 - name: Pobranie pakietu CloudWatch Agent (arm64)
   get_url:
-    url: "https://s3.{{ aws_region }}.amazonaws.com/amazoncloudwatch-agent-{{ aws_region }}/debian/arm64/latest/amazon-cloudwatch-agent.deb"
+    url: "https://s3.{{ cw_agent_region }}.amazonaws.com/amazoncloudwatch-agent-{{ cw_agent_region }}/debian/arm64/latest/amazon-cloudwatch-agent.deb"
     dest: /tmp/amazon-cloudwatch-agent.deb
     mode: "0644"
   register: cw_download
@@ -65,7 +69,7 @@
     content: |
       {
         "agent": {
-          "region": "{{ aws_region }}",
+          "region": "{{ cw_agent_region }}",
           "run_as_user": "root",
           "debug": false
         },
