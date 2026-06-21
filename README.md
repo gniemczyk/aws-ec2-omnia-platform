@@ -291,6 +291,6 @@ Projekt demonstruje zaawansowane podejście DevOps do bezpieczeństwa, infrastru
 - CI/CD z pełną automatyzacją oraz autoryzacją OIDC (federacja GitHub Actions -> AWS) bez konieczności utrzymywania długowiecznych kluczy statycznych.
 - **Brak hardcoded credentials** - wszystkie hasła i tajne klucze aplikacyjne są przekazywane poprzez GitHub Secrets lub generowane automatycznie (np. Grafana) i bezpiecznie przetrzymywane w AWS SSM Parameter Store.
 
-## Licencja
-
-MIT
+---
+**Autor:** Grzegorz N  
+**Data:** Czerwiec 2026
