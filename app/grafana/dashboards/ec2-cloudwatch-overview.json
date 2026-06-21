@@ -715,7 +715,7 @@
     }
   ],
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "links": [],
   "time": {
     "from": "now-6h",
@@ -748,8 +748,8 @@
         "regex": "",
         "sort": 1,
         "current": {
-          "text": "eu-central-1",
-          "value": "eu-central-1"
+          "text": "eu-north-1",
+          "value": "eu-north-1"
         },
         "hide": 0,
         "label": "Region",
@@ -760,8 +760,8 @@
       {
         "name": "instance_id",
         "type": "query",
-        "query": "ec2_instance_attribute($region, InstanceId, {})",
-        "definition": "ec2_instance_attribute($region, InstanceId, {})",
+        "query": "dimensionValues($region, AWS/EC2, InstanceId)",
+        "definition": "dimensionValues($region, AWS/EC2, InstanceId)",
         "datasource": {
           "type": "cloudwatch",
           "uid": "cloudwatch"
@@ -770,14 +770,14 @@
         "regex": "",
         "sort": 1,
         "current": {
-          "text": "All",
-          "value": "$__all"
+          "text": "i-031627784b3ca8e8f",
+          "value": "i-031627784b3ca8e8f"
         },
         "hide": 0,
         "label": "EC2 Instance",
         "includeAll": true,
         "multi": false,
-        "description": "Wybierz EC2 Instance ID"
+        "description": "Wybierz EC2 Instance ID (lista z CloudWatch ListMetrics)"
       }
     ]
   },

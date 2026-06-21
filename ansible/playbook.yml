@@ -28,6 +28,10 @@
     grafana_admin_user: admin
     grafana_admin_password: ""
 
+    # Region AWS - nadpisywany przez --extra-vars lub zmienna srodowiskowa AWS_REGION
+    # Uzywany w cloudwatch-agent.yml do URL i konfiguracji agenta
+    aws_region: "{{ lookup('env', 'AWS_REGION') | default('eu-central-1', true) }}"
+
   tasks:
     # =========================================================================
     # FAZA 0: Generowanie brakujacych sekretow (przed zaladowaniem per-app vars)
@@ -56,6 +60,10 @@
 
     - name: FAZA 2 - Przygotowanie systemu (Docker, glowne pakiety)
       ansible.builtin.import_tasks: tasks/system.yml
+
+    - name: FAZA 2b - Instalacja CloudWatch Agent (logi kontenera)
+      ansible.builtin.import_tasks: tasks/cloudwatch-agent.yml
+      when: cloudwatch_agent_install | default(true)
 
     - name: FAZA 3 - Instalacja cloudflared
       ansible.builtin.import_tasks: tasks/cloudflared.yml

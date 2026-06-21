@@ -313,6 +313,20 @@ resource "aws_iam_role_policy" "platform_access" {
         Resource = "*"
       },
       {
+        Sid    = "CloudWatchLogsAccess"
+        Effect = "Allow"
+        Action = [
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams",
+          "logs:GetLogEvents",
+          "logs:FilterLogEvents",
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "*"
+      },
+      {
         Sid    = "EC2ReadOnly"
         Effect = "Allow"
         Action = [
