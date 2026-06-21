@@ -769,10 +769,6 @@
         "refresh": 2,
         "regex": "",
         "sort": 1,
-        "current": {
-          "text": "",
-          "value": ""
-        },
         "hide": 0,
         "label": "EC2 Instance",
         "includeAll": false,
