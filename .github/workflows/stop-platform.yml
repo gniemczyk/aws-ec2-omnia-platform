@@ -14,7 +14,6 @@ on:
       confirm:
         description: "Wpisz 'stop' aby potwierdzic zatrzymanie"
         required: true
-        default: "stop"
         type: string
 
   # Opcjonalnie: automatyczne zatrzymanie wg harmonogramu
