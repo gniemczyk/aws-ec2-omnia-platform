@@ -31,7 +31,7 @@
           },
           "statistic": "SampleCount",
           "period": "300",
-          "matchExact": true,
+          "matchExact": false,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -93,7 +93,7 @@
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": true,
+          "matchExact": false,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -178,7 +178,7 @@
           },
           "statistic": "Sum",
           "period": "60",
-          "matchExact": true,
+          "matchExact": false,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -262,7 +262,7 @@
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": true,
+          "matchExact": false,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -278,7 +278,7 @@
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": true,
+          "matchExact": false,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -365,7 +365,7 @@
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": true,
+          "matchExact": false,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -381,7 +381,7 @@
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": true,
+          "matchExact": false,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -461,7 +461,7 @@
           },
           "statistic": "Minimum",
           "period": "300",
-          "matchExact": true,
+          "matchExact": false,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -546,7 +546,7 @@
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": true,
+          "matchExact": false,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -562,7 +562,7 @@
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": true,
+          "matchExact": false,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -642,7 +642,7 @@
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": true,
+          "matchExact": false,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -658,7 +658,7 @@
           },
           "statistic": "Average",
           "period": "60",
-          "matchExact": true,
+          "matchExact": false,
           "datasource": {
             "type": "cloudwatch",
             "uid": "cloudwatch"
@@ -748,8 +748,8 @@
         "regex": "",
         "sort": 1,
         "current": {
-          "text": "default",
-          "value": "default"
+          "text": "eu-central-1",
+          "value": "eu-central-1"
         },
         "hide": 0,
         "label": "Region",
@@ -770,14 +770,14 @@
         "regex": "",
         "sort": 1,
         "current": {
-          "text": "All",
-          "value": "All"
+          "text": "",
+          "value": ""
         },
         "hide": 0,
         "label": "EC2 Instance",
-        "includeAll": true,
-        "multi": true,
-        "description": "Wybierz EC2 Instance ID. All = wszystkie instancje w regionie"
+        "includeAll": false,
+        "multi": false,
+        "description": "Wybierz EC2 Instance ID"
       }
     ]
   },

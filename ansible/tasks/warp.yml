@@ -120,8 +120,8 @@
       RestartSec=5
       ExecStart=/bin/bash -c '\
           while true; do \
-              if ip link show CloudflareWARP > /dev/null 2>&1; then \
-                  CURRENT_MTU=$(ip link show CloudflareWARP | grep -o "mtu [0-9]*" | awk "{print \$$2}"); \
+              if [ -f /sys/class/net/CloudflareWARP/mtu ]; then \
+                  CURRENT_MTU=$(cat /sys/class/net/CloudflareWARP/mtu); \
                   if [ "$CURRENT_MTU" != "1100" ]; then \
                       ip link set dev CloudflareWARP mtu 1100; \
                       echo "MTU zmienione z $CURRENT_MTU na 1100"; \
