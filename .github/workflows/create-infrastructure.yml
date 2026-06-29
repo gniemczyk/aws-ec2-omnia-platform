@@ -273,7 +273,7 @@ jobs:
             }' \
             --region ${{ env.AWS_REGION }}
 
-          echo "🗑️  Ustawianie lifecycle policy (limit wersji do 10)..."
+          echo "🗑️  Ustawianie lifecycle policy (limit wersji do 3)..."
           aws s3api put-bucket-lifecycle-configuration \
             --bucket "$BUCKET_NAME" \
             --lifecycle-configuration '{
@@ -284,7 +284,7 @@ jobs:
                   "Filter": {"Prefix": ""},
                   "NoncurrentVersionExpiration": {
                     "NoncurrentDays": 1,
-                    "NewerNoncurrentVersions": 10
+                    "NewerNoncurrentVersions": 3
                   },
                   "Expiration": {
                     "ExpiredObjectDeleteMarker": true

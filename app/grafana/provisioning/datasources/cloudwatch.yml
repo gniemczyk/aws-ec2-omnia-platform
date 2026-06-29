@@ -1,18 +1,13 @@
 apiVersion: 1
 
 datasources:
-  - name: CloudWatch
+  - name: cloudwatch
     type: cloudwatch
     access: proxy
     uid: cloudwatch
+    isDefault: true
     jsonData:
       authType: ec2IAMRole
-      # Region pobierany ze zmiennej srodowiskowej - Grafana wspiera substytucje env vars
-      defaultRegion: eu-central-1
-      # Pozwól na popularne regiony, w tym te używane w projekcie
-      regions:
-        - eu-central-1
-        - eu-north-1
-        - us-east-1
-        - us-west-2
+      defaultRegion: ${AWS_DEFAULT_REGION:eu-central-1}
+    editable: true
 

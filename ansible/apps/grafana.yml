@@ -1,10 +1,16 @@
 # =============================================================================
-# Grafana - zmienne specificzne dla aplikacji
+# Grafana - zmienne i konfiguracja specificzne dla aplikacji
 # =============================================================================
 # Wartosci z Jinja2 sa ewaluowane podczas deployu.
 # Zmienne (grafana_admin_user, grafana_admin_password) pochodza z:
 #   - --extra-vars (GitHub Secrets) lub
 #   - domyslnych wartosci z playbook.yml (losowe haslo)
+#
+# PROVISIONING:
+#   Logika generowania provisioning files (cloudwatch.yml, dashboard JSON)
+#   znajduje sie w: ansible/tasks/grafana.yml
+#   Dashboard sam dynamicznie pobiera regiony i instancje z CloudWatch API
+#   (queryType: regions / dimensionValues) - nie wymaga statycznej listy.
 # =============================================================================
 
 env_extra:
@@ -12,3 +18,5 @@ env_extra:
   GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
   AWS_USE_DUALSTACK_ENDPOINT: "true"
   AWS_DEFAULT_REGION: "{{ lookup('env', 'AWS_REGION') | default('eu-central-1', true) }}"
+  # Poziom logowania: 'info' dla produkcji, 'debug' tylko do debugowania CloudWatch
+  GF_LOG_LEVEL: "{{ grafana_log_level | default('info', true) }}"

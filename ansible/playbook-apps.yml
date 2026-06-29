@@ -1,0 +1,94 @@
+# =============================================================================
+# Omnia Platform - Playbook APLIKACJE (Deploy + Cloudflare Tunnels)
+# =============================================================================
+# Uruchamia FAZY 3-7: cloudflared, konfiguracja apps, deploy kontenerow,
+# Cloudflare Quick Tunnels i raport z URL-ami.
+#
+# WYMAGANIA: Platforma bazowa musi byc juz uruchomiona (playbook-platform.yml)
+#   - Cloudflare WARP musi byc polaczony (IPv4)
+#   - Docker Engine musi byc zainstalowany i uruchomiony
+#
+# Uzycie: ansible-playbook ansible/playbook-apps.yml -i ansible/inventory.yml
+# Wymagane env: EC2_INSTANCE_ID, AWS_REGION, PLATFORM_NAME, SSM_S3_BUCKET_NAME
+# =============================================================================
+
+---
+- name: "Omnia Platform - Wdrozenie aplikacji"
+  hosts: omnia_instance
+  become: true
+  gather_facts: true
+
+  vars:
+    # Sciezki
+    apps_config_path: "{{ platform_base_dir }}/{{ apps_config_filename }}"
+    apps_dir: "{{ platform_base_dir }}/app"
+    results_file: "{{ platform_base_dir }}/tunnel-urls.md"
+
+    # Prefiks dla SSM Parameter Store (np. /nazwa-platformy/)
+    ssm_root: "/{{ platform_name }}"
+
+    # Dane logowania do Grafany - nadpisywane przez --extra-vars (z GitHub Secrets)
+    # Potrzebne w raporcie (tasks/report.yml) do wyswietlenia danych logowania
+    grafana_admin_user: admin
+    grafana_admin_password: ""
+
+  tasks:
+    # =========================================================================
+    # FAZA 0: Weryfikacja gotowosci platformy bazowej
+    # =========================================================================
+
+    - name: Przywrocenie domyslnego uzytkownika admina jesli przekazano pusty
+      set_fact:
+        grafana_admin_user: admin
+      when: grafana_admin_user | length == 0
+
+    - name: Weryfikacja - Docker Engine musi byc uruchomiony
+      ansible.builtin.command: docker info
+      changed_when: false
+      register: docker_check
+      failed_when: docker_check.rc != 0
+
+    - name: Weryfikacja - Cloudflare WARP musi byc polaczony
+      ansible.builtin.command: warp-cli --accept-tos status
+      changed_when: false
+      register: warp_check
+      failed_when: "'Connected' not in warp_check.stdout"
+
+    - name: Potwierdzenie gotowosci platformy bazowej
+      ansible.builtin.debug:
+        msg: "✅ Platforma bazowa zweryfikowana: Docker dziala, WARP polaczony."
+
+    # =========================================================================
+    # FAZA 3: Instalacja cloudflared (binarka z S3)
+    # =========================================================================
+
+    - name: FAZA 3 - Instalacja cloudflared
+      ansible.builtin.import_tasks: tasks/cloudflared.yml
+
+    # =========================================================================
+    # FAZA 4: Konfiguracja aplikacji (apps.json, app/, per-app vars)
+    # =========================================================================
+
+    - name: FAZA 4 - Konfiguracja aplikacji
+      ansible.builtin.import_tasks: tasks/config.yml
+
+    # =========================================================================
+    # FAZA 5: Deploy kontenerow Docker
+    # =========================================================================
+
+    - name: FAZA 5 - Deploy kontenerow
+      ansible.builtin.import_tasks: tasks/deploy.yml
+
+    # =========================================================================
+    # FAZA 6: Cloudflare Quick Tunnels (wystawienie na swiat)
+    # =========================================================================
+
+    - name: FAZA 6 - Tunele Cloudflare
+      ansible.builtin.import_tasks: tasks/tunnels.yml
+
+    # =========================================================================
+    # FAZA 7: Raport z URL-ami
+    # =========================================================================
+
+    - name: FAZA 7 - Raport
+      ansible.builtin.import_tasks: tasks/report.yml

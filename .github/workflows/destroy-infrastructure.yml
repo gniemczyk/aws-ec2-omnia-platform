@@ -25,7 +25,7 @@ jobs:
   destroy-infrastructure:
     name: "Zniszczenie infrastruktury Terraform"
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       PLATFORM_NAME: ${{ vars.PLATFORM_NAME }}
@@ -131,6 +131,7 @@ jobs:
           echo "::warning::- IAM Role i Instance Profile"
           echo "::warning::- VPC Endpoints"
           echo "::warning::- EBS Volumes"
+          echo "::warning::- CloudWatch Log Group: /${{ env.PLATFORM_NAME }}/docker/containers"
           echo "::warning::- S3 Bucket: $BUCKET_NAME"
           echo "::warning::- SSM Parameters"
           echo ""
@@ -204,9 +205,37 @@ jobs:
           aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_NAME" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_NAME nie istnieje"
           aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_USER" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_USER" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_USER nie istnieje"
           aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_PASSWORD" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_PASSWORD" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_PASSWORD nie istnieje"
+          aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/PLATFORM_READY" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/PLATFORM_READY" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/PLATFORM_READY nie istnieje"
           
           echo ""
           echo "✅ Parametry SSM usunięte"
+
+      # =====================================================================
+      # KROK 10: Usunięcie CloudWatch Log Group
+      # =====================================================================
+      # Log group jest tworzony dynamicznie przez CloudWatch Agent na EC2
+      # z nazwa /<PLATFORM_NAME>/docker/containers (zdefiniowana w
+      # ansible/tasks/cloudwatch-agent.yml). Nie jest zarzadzany przez
+      # Terraform - wymaga recznego usuniecia.
+      # =====================================================================
+      - name: Usunięcie CloudWatch Log Group
+        run: |
+          LOG_GROUP_NAME="/${{ env.PLATFORM_NAME }}/docker/containers"
+          echo "🗑️  Usuwanie CloudWatch Log Group: $LOG_GROUP_NAME"
+          
+          if aws logs describe-log-groups \
+            --log-group-name-prefix "$LOG_GROUP_NAME" \
+            --region ${{ env.AWS_REGION }} \
+            --query 'logGroups[?logGroupName==`'"$LOG_GROUP_NAME"'`].logGroupName' \
+            --output text 2>/dev/null | grep -q "$LOG_GROUP_NAME"; then
+            
+            aws logs delete-log-group \
+              --log-group-name "$LOG_GROUP_NAME" \
+              --region ${{ env.AWS_REGION }}
+            echo "  ✅ CloudWatch Log Group usunięta: $LOG_GROUP_NAME"
+          else
+            echo "  ℹ️  CloudWatch Log Group nie istnieje: $LOG_GROUP_NAME"
+          fi
 
       # =====================================================================
       # KROK 11: Czyszczenie S3 - OSTATNI KROK (tylko jesli wszystko OK)
@@ -228,33 +257,47 @@ jobs:
             exit 0
           fi
           
-          echo "  📝 Usuwanie wszystkich obiektów (wersjonowanych)..."
-          
-          # Usuwanie wszystkich wersji obiektow
-          VERSIONS=$(aws s3api list-object-versions \
-            --bucket "$BUCKET_NAME" \
-            --region ${{ env.AWS_REGION }} \
-            --output json 2>/dev/null || echo '{}')
-          
-          # Usun wersje
-          echo "$VERSIONS" | jq -r '.Versions[]? | "\(.Key) \(.VersionId)"' | while read -r KEY VID; do
-            [ -z "$KEY" ] && continue
-            aws s3api delete-object \
+          echo "  📝 Batch usuwanie wszystkich wersji i delete markerów (batch po 1000)..."
+
+          TOTAL_DELETED=0
+          for ((i=1; i<=500; i++)); do
+            DELETE_PAYLOAD=$(aws s3api list-object-versions \
               --bucket "$BUCKET_NAME" \
-              --key "$KEY" \
-              --version-id "$VID" \
-              --region ${{ env.AWS_REGION }} 2>/dev/null || true
-          done
-          
-          # Usun delete markers
-          echo "$VERSIONS" | jq -r '.DeleteMarkers[]? | "\(.Key) \(.VersionId)"' | while read -r KEY VID; do
-            [ -z "$KEY" ] && continue
-            aws s3api delete-object \
+              --region ${{ env.AWS_REGION }} \
+              --no-paginate \
+              --output json 2>/dev/null \
+              | jq '{Objects: [.Versions[]?, .DeleteMarkers[]? | {Key, VersionId}], Quiet: true}' \
+              2>/dev/null || echo '{}')
+
+            OBJECT_COUNT=$(echo "$DELETE_PAYLOAD" | jq '.Objects | length // 0')
+
+            [ "$OBJECT_COUNT" -eq 0 ] && break
+
+            echo "  Batch #$i: $OBJECT_COUNT obiektów..."
+
+            if aws s3api delete-objects \
               --bucket "$BUCKET_NAME" \
-              --key "$KEY" \
-              --version-id "$VID" \
-              --region ${{ env.AWS_REGION }} 2>/dev/null || true
+              --delete "$DELETE_PAYLOAD" \
+              --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+              echo "  Batch #$i usunięty"
+            else
+              echo "  ⚠️ Błąd batch #$i - próbuję indywidualnie..."
+              echo "$DELETE_PAYLOAD" | jq -r '.Objects[]? | "\(.Key) \(.VersionId)"' | \
+              while read -r KEY VID; do
+                [ -z "$KEY" ] && continue
+                aws s3api delete-object \
+                  --bucket "$BUCKET_NAME" \
+                  --key "$KEY" \
+                  --version-id "$VID" \
+                  --region ${{ env.AWS_REGION }} 2>/dev/null || true
+              done
+            fi
+
+            TOTAL_DELETED=$((TOTAL_DELETED + OBJECT_COUNT))
+            echo "  Postęp: $TOTAL_DELETED usuniętych"
           done
+
+          echo "  ✅ Batch delete zakończony ($TOTAL_DELETED obiektów)"
           
           # Usun bucket
           echo "  🪣 Usuwanie bucketu..."
@@ -293,6 +336,7 @@ jobs:
           echo "- ✅ IAM Role i Instance Profile" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ VPC Endpoints" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ EBS Volumes" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ CloudWatch Log Group (\/\`${{ env.PLATFORM_NAME }}\`\/docker\/containers)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ S3 Bucket (razem z wszystkimi wersjonowanymi obiektami)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ SSM Parameters" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

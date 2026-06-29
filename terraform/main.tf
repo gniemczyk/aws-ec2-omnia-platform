@@ -241,7 +241,7 @@ resource "aws_security_group" "platform_instance" {
 }
 
 # =============================================================================
-# ROLA IAM I PROFIL INSTANCJI (dostep SSM)
+# ROLA IAM I PROFIL INSTANCJI (dostep SSM + CloudWatch)
 # =============================================================================
 
 resource "aws_iam_role" "platform_instance" {
@@ -271,7 +271,74 @@ resource "aws_iam_role_policy_attachment" "ssm_core" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# Polityka CloudWatch + EC2 Read - ZAWSZE dostepna (niezależna od S3/SSM)
+# Wymagana przez Grafane do odczytu metryk i listy instancji
+resource "aws_iam_role_policy" "cloudwatch_read" {
+  name = "cloudwatch-read"
+  role = aws_iam_role.platform_instance.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowReadingMetricsFromCloudWatch"
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:DescribeAlarms",
+          "cloudwatch:DescribeAlarmsForMetric",
+          "cloudwatch:DescribeAlarmHistory",
+          "cloudwatch:GetInsightRuleReport",
+          "cloudwatch:GetMetricData",
+          "cloudwatch:GetMetricStatistics",
+          "cloudwatch:ListMetrics"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowCrossAccountObservability"
+        Effect = "Allow"
+        Action = [
+          "oam:ListSinks",
+          "oam:ListAttachedLinks"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid      = "AllowTagQuerying"
+        Effect   = "Allow"
+        Action   = "tag:GetResources"
+        Resource = "*"
+      },
+      {
+        Sid    = "CloudWatchLogsAccess"
+        Effect = "Allow"
+        Action = [
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams",
+          "logs:GetLogEvents",
+          "logs:FilterLogEvents",
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "EC2ReadOnly"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances",
+          "ec2:DescribeTags",
+          "ec2:DescribeRegions"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # Polityka odczytu S3 i zapisu SSM - wymagana przez Ansible na instancji
+# Warunkowa: tylko gdy ssm_s3_bucket_name jest ustawiony
 resource "aws_iam_role_policy" "platform_access" {
   count = var.ssm_s3_bucket_name != "" ? 1 : 0
   name  = "platform-access"
@@ -298,43 +365,6 @@ resource "aws_iam_role_policy" "platform_access" {
           "ssm:DeleteParameter"
         ]
         Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/GRAFANA_*"
-      },
-      {
-        Sid    = "CloudWatchReadOnly"
-        Effect = "Allow"
-        Action = [
-          "cloudwatch:ListMetrics",
-          "cloudwatch:GetMetricData",
-          "cloudwatch:GetMetricStatistics",
-          "cloudwatch:DescribeAlarms",
-          "oam:ListSinks",
-          "oam:ListAttachedLinks"
-        ]
-        Resource = "*"
-      },
-      {
-        Sid    = "CloudWatchLogsAccess"
-        Effect = "Allow"
-        Action = [
-          "logs:DescribeLogGroups",
-          "logs:DescribeLogStreams",
-          "logs:GetLogEvents",
-          "logs:FilterLogEvents",
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "*"
-      },
-      {
-        Sid    = "EC2ReadOnly"
-        Effect = "Allow"
-        Action = [
-          "ec2:DescribeInstances",
-          "ec2:DescribeTags",
-          "ec2:DescribeRegions"
-        ]
-        Resource = "*"
       }
     ]
   })

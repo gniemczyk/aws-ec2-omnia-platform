@@ -49,3 +49,11 @@
     file: apps/api.yml
     name: app_api
   when: apps | map(attribute='name') | select('equalto', 'api') | length > 0
+
+# =============================================================================
+# Konfiguracja specyficzna dla aplikacji (provisioning files, itp)
+# =============================================================================
+
+- name: Konfiguracja Grafany - generowanie provisioning files z dynamiką AWS
+  import_tasks: tasks/grafana.yml
+  when: apps | map(attribute='name') | select('equalto', 'grafana') | length > 0
