@@ -26,7 +26,8 @@
       {% for env_var in item.env | default([]) %}
       {{ env_var }}
       {% endfor %}
-      {% set app_vars = vars.get('app_' + item.name, {}) %}
+      {% set app_var_key = 'app_' + item.name %}
+      {% set app_vars = vars[app_var_key] | default({}) %}
       {% if app_vars is mapping and app_vars.env_extra is defined %}
       {% for key, value in app_vars.env_extra.items() %}
       {{ key }}={{ value }}
@@ -57,7 +58,8 @@
     {% for env_var in item.env | default([]) %}
     ENV_FLAGS+=(-e "{{ env_var }}")
     {% endfor %}
-    {% set app_vars = vars.get('app_' + item.name, {}) %}
+    {% set app_var_key = 'app_' + item.name %}
+    {% set app_vars = vars[app_var_key] | default({}) %}
     {% if app_vars is mapping and app_vars.env_extra is defined %}
     {% for key, value in app_vars.env_extra.items() %}
     ENV_FLAGS+=(-e "{{ key }}={{ value }}")

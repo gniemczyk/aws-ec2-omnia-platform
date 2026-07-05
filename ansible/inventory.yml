@@ -13,7 +13,7 @@ all:
     apps_config_filename: "{{ lookup('env', 'APPS_CONFIG_FILE') | default('apps.json', true) }}"
     cloudflared_bin: "{{ lookup('env', 'CLOUDFLARED_BIN') | default('/usr/local/bin/cloudflared', true) }}"
     tunnel_log_dir: "{{ lookup('env', 'TUNNEL_LOG_DIR') | default('/tmp/tunnels', true) }}"
-    tunnel_wait_seconds: "{{ lookup('env', 'TUNNEL_WAIT_SECONDS') | default('8', true) | int }}"
+    tunnel_wait_seconds: "{{ lookup('env', 'TUNNEL_WAIT_SECONDS') | default('20', true) | int }}"
 
   hosts:
     omnia_instance:

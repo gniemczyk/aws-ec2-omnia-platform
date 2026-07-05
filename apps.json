@@ -1,7 +1,7 @@
 [
   {
     "name": "grafana",
-    "image": "grafana/grafana-oss:11.0.0",
+    "image": "grafana/grafana:13.1.0-ubuntu",
     "port": 3000,
     "compose": true,
     "env": []

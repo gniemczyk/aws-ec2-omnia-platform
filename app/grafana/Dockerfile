@@ -14,12 +14,10 @@ ENV GF_SECURITY_ADMIN_USER=admin
 # GF_SECURITY_ADMIN_PASSWORD - ustaw w runtime (NIE hardcode'uj!)
 
 # =============================================================================
-# Wlacz debug logging dla CloudWatch datasource (AWS SDK + plugin)
-# Nadpisywane przez GF_LOG_LEVEL w docker-compose / Ansible gdy potrzeba
-# wyzszy poziom (produkcja: info).
+# Poziom logowania: info (produkcja). Nadpisywane przez GF_LOG_LEVEL
+# w docker-compose / Ansible gdy potrzeba debugowania.
 # =============================================================================
-ENV GF_LOG_LEVEL=debug
-ENV GF_LOG_FILTERS=cloudwatch:debug,aws:debug
+ENV GF_LOG_LEVEL=info
 
 # =============================================================================
 # Provisioning: datasource, dashboard provider + dashboard JSON

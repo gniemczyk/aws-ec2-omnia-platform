@@ -9,7 +9,7 @@
 
 - name: Pobranie binarki cloudflared dla ARM64 z S3
   command:
-    cmd: aws s3 cp "s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/bin/cloudflared-linux-arm64" "{{ cloudflared_bin }}"
+    cmd: aws s3 cp "s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/artifacts/bin/cloudflared-linux-arm64" "{{ cloudflared_bin }}"
   environment:
     AWS_DEFAULT_REGION: "{{ lookup('env', 'AWS_REGION') }}"
   when: not cloudflared_stat.stat.exists

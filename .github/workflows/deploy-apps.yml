@@ -141,13 +141,12 @@ jobs:
           PLATFORM_BASE_DIR=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/PLATFORM_BASE_DIR" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "/opt/omnia")
           SSM_S3_BUCKET_NAME=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_NAME" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text)
           
-          # Pobierz parametry Grafany z SSM
+          # Pobierz login uzytkownika Grafany z SSM
           GRAFANA_USER=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_USER" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "admin")
-          GRAFANA_PASS=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_PASSWORD" --with-decryption --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
-          
-          # Maskowanie hasla
-          echo "::add-mask::$GRAFANA_PASS"
-          
+
+          # Haslo GRAFANA jest zarzadzane przez Ansible (SSM Parameter Store)
+          # Playbook pobiera/generuje haslo wewnatrz instancji - brak ekspozycji w runnerze
+
           # Ustawienie output variables
           echo "ec2_instance_id=$EC2_INSTANCE_ID" >> $GITHUB_OUTPUT
           echo "aws_region=$AWS_REGION" >> $GITHUB_OUTPUT
@@ -155,7 +154,6 @@ jobs:
           echo "platform_base_dir=$PLATFORM_BASE_DIR" >> $GITHUB_OUTPUT
           echo "ssm_s3_bucket_name=$SSM_S3_BUCKET_NAME" >> $GITHUB_OUTPUT
           echo "grafana_user=$GRAFANA_USER" >> $GITHUB_OUTPUT
-          echo "grafana_pass=$GRAFANA_PASS" >> $GITHUB_OUTPUT
           
           echo "✅ Parametry pobrane z SSM Parameter Store"
           echo "Instance ID: $EC2_INSTANCE_ID"
@@ -178,6 +176,39 @@ jobs:
         uses: actions/checkout@v4
 
       # =====================================================================
+      # KROK 2.5: Walidacja dashboardów - UIDs muszą być <= 40 znaków
+      # =====================================================================
+      - name: "Walidacja dashboardów - sprawdzenie UID length"
+        run: |
+          echo "🔍 Sprawdzanie UIDs dashboardów..."
+          DASHBOARDS_DIR="app/grafana/dashboards"
+          INVALID_UIDS=0
+          
+          for dashboard in $DASHBOARDS_DIR/*.json; do
+            if [ -f "$dashboard" ]; then
+              DASHBOARD_UID=$(grep -o '"uid":\s*"[^"]*"' "$dashboard" | head -1 | cut -d'"' -f4)
+              DASHBOARD_UID_LENGTH=${#DASHBOARD_UID}
+              
+              if [ $DASHBOARD_UID_LENGTH -gt 40 ]; then
+                echo "❌ BŁĄD: $dashboard ma UID za długi: '$DASHBOARD_UID' ($DASHBOARD_UID_LENGTH znaków, max 40)"
+                INVALID_UIDS=$((INVALID_UIDS + 1))
+              else
+                echo "✅ $dashboard: UID '$DASHBOARD_UID' ($DASHBOARD_UID_LENGTH znaków) - OK"
+              fi
+            fi
+          done
+          
+          if [ $INVALID_UIDS -gt 0 ]; then
+            echo ""
+            echo "::error::❌ Znaleźllem $INVALID_UIDS dashboardów z UIDs za długimi!"
+            echo "::error::Grafana pozwala maksymalnie 40 znaków w UID."
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ Wszystkie UIDs dashboardów są prawidłowe"
+
+      # =====================================================================
       # KROK 3: Instalacja Ansible i zaleznosci
       # =====================================================================
       - name: Instalacja Ansible i pluginu AWS SSM
@@ -196,7 +227,40 @@ jobs:
           ansible --version
 
       # =====================================================================
-      # KROK 4: Uruchomienie Ansible Playbook - APLIKACJE
+      # KROK 4: Zarzadzanie haslem Grafana przez SSM (runner -> SSM)
+      # Haslo jest generowane/pobierane tutaj (AWS CLI dziala na runnerze),
+      # a nastepnie przekazywane do Ansible jako --extra-vars.
+      # =====================================================================
+      - name: Zarzadzanie haslem Grafana
+        id: grafana-password
+        run: |
+          SSM_PARAM="/${{ steps.ssm-params.outputs.platform_name }}/GRAFANA_ADMIN_PASSWORD"
+
+          PASSWORD=$(aws ssm get-parameter \
+            --name "$SSM_PARAM" \
+            --with-decryption \
+            --query Parameter.Value \
+            --output text 2>/dev/null || echo "")
+
+          if [ -z "$PASSWORD" ]; then
+            echo "Generowanie nowego hasla Grafana..."
+            PASSWORD=$(openssl rand -hex 12)
+            aws ssm put-parameter \
+              --name "$SSM_PARAM" \
+              --value "$PASSWORD" \
+              --type "SecureString" \
+              --overwrite \
+              --region "${{ steps.ssm-params.outputs.aws_region }}"
+            echo "Nowe haslo zapisane w SSM."
+          else
+            echo "Haslo Grafana pobrane z SSM."
+          fi
+
+          echo "::add-mask::$PASSWORD"
+          echo "password=$PASSWORD" >> $GITHUB_OUTPUT
+
+      # =====================================================================
+      # KROK 5: Uruchomienie Ansible Playbook - APLIKACJE
       # Playbook: playbook-apps.yml (FAZY 3-7: cloudflared, config, deploy,
       #           tunele Cloudflare, raport z URL-ami)
       # =====================================================================
@@ -208,17 +272,17 @@ jobs:
           PLATFORM_BASE_DIR: ${{ steps.ssm-params.outputs.platform_base_dir }}
           SSM_S3_BUCKET_NAME: ${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}
           GRAFANA_USER: ${{ steps.ssm-params.outputs.grafana_user }}
-          GRAFANA_PASS: ${{ steps.ssm-params.outputs.grafana_pass }}
+          GRAFANA_PASSWORD: ${{ steps.grafana-password.outputs.password }}
           ANSIBLE_HOST_KEY_CHECKING: "False"
         run: |
           ansible-playbook ansible/playbook-apps.yml \
             -i ansible/inventory.yml \
             -v \
             --timeout 120 \
-            --extra-vars "grafana_admin_user=$GRAFANA_USER grafana_admin_password=$GRAFANA_PASS"
+            --extra-vars "grafana_admin_user=$GRAFANA_USER grafana_admin_password=$GRAFANA_PASSWORD"
 
       # =====================================================================
-      # KROK 5: Pobranie URL-i tuneli i publikacja w podsumowaniu
+      # KROK 6: Pobranie URL-i tuneli i publikacja w podsumowaniu
       # =====================================================================
       - name: Pobranie URL-i tuneli przez SSM
         id: get-urls
@@ -270,7 +334,7 @@ jobs:
           echo "$REPORT" >> $GITHUB_STEP_SUMMARY
 
       # =====================================================================
-      # KROK 6: Publikacja podsumowania
+      # KROK 7: Publikacja podsumowania
       # =====================================================================
       - name: Publikacja statusu aplikacji
         if: success()

@@ -33,10 +33,9 @@ services:
       - "AWS_USE_DUALSTACK_ENDPOINT=${AWS_USE_DUALSTACK_ENDPOINT:-true}"
 
       # ============================================================
-      # Logowanie - poziom DEBUG dla CloudWatch
+      # Logowanie - poziom INFO (produkcja)
       # ============================================================
-      - GF_LOG_LEVEL=${GF_LOG_LEVEL:-debug}
-      - GF_LOG_FILTERS=cloudwatch:debug,aws:debug
+      - GF_LOG_LEVEL=${GF_LOG_LEVEL:-info}
 
       # ============================================================
       # Baza danych SQLite - optymalizacja dla wspoldzielonego volume
@@ -51,8 +50,8 @@ services:
       app: "grafana"
 
   # =================================================================
-  # Init container - ładuje dashboard przez API Grafany
-  # Czeka aż Grafana się uruchomi, następnie wczytuje dashboard w formacie v1
+  # Init container - ładuje wszystkie dashboardy przez API Grafany
+  # Czeka aż Grafana się uruchomi, następnie wczytuje dashboardy
   # =================================================================
   grafana-dashboard-loader:
     image: curlimages/curl:latest
@@ -65,7 +64,7 @@ services:
       - ADMIN_USER=${GF_SECURITY_ADMIN_USER}
       - ADMIN_PASS=${GF_SECURITY_ADMIN_PASSWORD}
     volumes:
-      - ./dashboards/ec2-cloudwatch-overview.json:/dashboard.json:ro
+      - ./dashboards:/dashboards:ro
     command: |
       sh -c '
         echo "⏳ Oczekiwanie na Grafanę..."
@@ -78,13 +77,20 @@ services:
           sleep 2
         done
 
-        echo "📊 Ładowanie dashboarda..."
-        curl -X POST http://localhost:3000/api/dashboards/db \
-          -H "Content-Type: application/json" \
-          -u "$${ADMIN_USER}:$${ADMIN_PASS}" \
-          -d "{\"dashboard\":$(cat /dashboard.json),\"overwrite\":true}"
+        echo "📊 Ładowanie dashboardów..."
+        for dashboard in /dashboards/*.json; do
+          if [ -f "$$dashboard" ]; then
+            echo "  📄 Ładowanie: $$(basename $$dashboard)"
+            curl -X POST http://localhost:3000/api/dashboards/db \
+              -H "Content-Type: application/json" \
+              -u "$${ADMIN_USER}:$${ADMIN_PASS}" \
+              -d "{\"dashboard\":$(cat $$dashboard),\"overwrite\":true}" \
+              --silent --show-error
+            echo "    ✅ OK"
+          fi
+        done
 
-        echo "✅ Dashboard załadowany"
+        echo "✅ Wszystkie dashboardy załadowane"
         exit 0
       '
     restart: "no"

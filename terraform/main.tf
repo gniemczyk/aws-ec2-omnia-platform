@@ -13,7 +13,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.53.0"
+      version = "~> 5.95.0"
     }
   }
 
@@ -310,18 +310,32 @@ resource "aws_iam_role_policy" "cloudwatch_read" {
         Resource = "*"
       },
       {
-        Sid    = "CloudWatchLogsAccess"
+        Sid    = "CloudWatchLogsReadAccess"
         Effect = "Allow"
         Action = [
           "logs:DescribeLogGroups",
           "logs:DescribeLogStreams",
           "logs:GetLogEvents",
-          "logs:FilterLogEvents",
-          "logs:CreateLogGroup",
+          "logs:FilterLogEvents"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CloudWatchLogsWriteAccess"
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup"
+        ]
+        Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/${var.project_name}/docker/containers"
+      },
+      {
+        Sid    = "CloudWatchLogsStreamWriteAccess"
+        Effect = "Allow"
+        Action = [
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
-        Resource = "*"
+        Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/${var.project_name}/docker/containers:log-stream:*"
       },
       {
         Sid    = "EC2ReadOnly"
@@ -352,8 +366,8 @@ resource "aws_iam_role_policy" "platform_access" {
         Effect = "Allow"
         Action = "s3:GetObject"
         Resource = [
-          "arn:aws:s3:::${var.ssm_s3_bucket_name}/bin/*",
-          "arn:aws:s3:::${var.ssm_s3_bucket_name}/apps/*"
+          "arn:aws:s3:::${var.ssm_s3_bucket_name}/artifacts/bin/*",
+          "arn:aws:s3:::${var.ssm_s3_bucket_name}/artifacts/apps/*"
         ]
       },
       {

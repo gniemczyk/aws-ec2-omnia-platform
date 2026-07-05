@@ -38,7 +38,7 @@
           "metricQueryType": 0,
           "namespace": "AWS/EC2",
           "period": "auto",
-          "queryLanguage": "CWLI",
+          
           "queryMode": "Metrics",
           "region": "$region",
           "statistic": "Average"
@@ -143,7 +143,7 @@
           "metricQueryType": 0,
           "namespace": "AWS/EC2",
           "period": "auto",
-          "queryLanguage": "CWLI",
+          
           "queryMode": "Metrics",
           "region": "$region",
           "statistic": "Average"
@@ -163,7 +163,7 @@
           "metricQueryType": 0,
           "namespace": "AWS/EC2",
           "period": "auto",
-          "queryLanguage": "CWLI",
+          
           "queryMode": "Metrics",
           "region": "$region",
           "statistic": "Average"
@@ -264,7 +264,7 @@
           "metricQueryType": 0,
           "namespace": "AWS/EC2",
           "period": "auto",
-          "queryLanguage": "CWLI",
+          
           "queryMode": "Metrics",
           "region": "$region",
           "statistic": "Average"
@@ -284,7 +284,7 @@
           "metricQueryType": 0,
           "namespace": "AWS/EC2",
           "period": "auto",
-          "queryLanguage": "CWLI",
+          
           "queryMode": "Metrics",
           "region": "$region",
           "statistic": "Average"
@@ -385,7 +385,7 @@
           "metricQueryType": 0,
           "namespace": "AWS/EC2",
           "period": "auto",
-          "queryLanguage": "CWLI",
+          
           "queryMode": "Metrics",
           "region": "$region",
           "statistic": "Maximum"
@@ -490,7 +490,7 @@
           "metricQueryType": 0,
           "namespace": "AWS/EC2",
           "period": "auto",
-          "queryLanguage": "CWLI",
+          
           "queryMode": "Metrics",
           "region": "$region",
           "statistic": "Minimum"

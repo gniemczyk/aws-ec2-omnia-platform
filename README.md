@@ -25,17 +25,17 @@ GitHub Actions (workflow_dispatch)
 
 ```
 .
-├── apps.json                          # Definicja aplikacji do wdrozenia
-├── app/                               # Katalog z aplikacjami (szczegoly: app/README.md)
+├── apps.json                          # Definicja aplikacji do wdrożenia
+├── app/                               # Katalog z aplikacjami (szczegóły: app/README.md)
 │   └── README.md
 ├── terraform/
 │   ├── main.tf                        # VPC, Subnet, SG, EC2, IAM, Endpoints
 │   ├── variables.tf                   # Zmienne (region, AZ, typ instancji...)
-│   ├── outputs.tf                     # Wyjscia (instance_id, IPv6, AZ...)
-│   └── terraform.tfvars.example       # Przykladowe wartosci
+│   ├── outputs.tf                     # Wyjścia (instance_id, IPv6, AZ...)
+│   └── terraform.tfvars.example       # Przykładowe wartości
 ├── ansible/
 │   ├── ansible.cfg                    # Konfiguracja (SSM)
-│   ├── inventory.yml                  # Inventory (zmienne srodowiskowe)
+│   ├── inventory.yml                  # Inventory (zmienne środowiskowe)
 │   ├── playbook.yml                   # Playbook (app/ + cloudflared + WARP)
 │   ├── requirements.yml               # Kolekcje Ansible Galaxy
 │   └── tasks/
@@ -45,12 +45,12 @@ GitHub Actions (workflow_dispatch)
     ├── start-platform.yml             # Uruchomienie platformy (Ansible)
     ├── stop-platform.yml              # Zatrzymanie platformy
     ├── destroy-infrastructure.yml     # Zniszczenie infrastruktury (Terraform)
-    └── lint-and-scan.yml              # Linting i skanowanie bezpieczenstwa
+    └── lint-and-scan.yml              # Linting i skanowanie bezpieczeństwa
 ```
 
 ## Wymagania lokalne (opcjonalne)
 
-Lokalne narzedzia sa **opcjonalne** - wszystko dziala przez GitHub Actions:
+Lokalne narzędzia są **opcjonalne** – wszystko działa przez GitHub Actions:
 
 ```bash
 # Opcjonalnie: AWS CLI do manualnych operacji
@@ -60,23 +60,21 @@ brew install awscli
 brew install --cask session-manager-plugin
 ```
 
-**Terraform jest w GitHub Actions - nie trzeba go instalowac lokalnie!**
+**Terraform jest w GitHub Actions – nie trzeba go instalować lokalnie!**
 
 ## Konfiguracja - AWS (jednorazowo)
 
-Potrzebne sa tylko 2 rzeczy w GitHub:
+Potrzebne są tylko 3 rzeczy w GitHub:
 
-| Co | Gdzie | Wartosc |
+| Co | Gdzie | Wartość |
 |----|-------|---------|
 | `AWS_ROLE_ARN` | GitHub Secrets | `arn:aws:iam::ACCOUNT_ID:role/github-actions-role` |
 | `AWS_REGION` | GitHub Variables | np. `eu-central-1` |
 | `PLATFORM_NAME` | GitHub Variables | np. `omnia-platform` |
 
 > 💡 **Ważne:** Rola IAM (`AWS_ROLE_ARN`) musi posiadać uprawnienia do tworzenia i zarządzania zasobami S3 (bucket stanu), EC2, VPC, IAM i AWS Systems Manager (SSM Parameter Store).
->
-> 💡 **Aplikacje mogą wymagać dodatkowych secretów** — zobacz [app/README.md](app/README.md) dla szczegółów.
 
-**Wszystkie inne parametry (EC2_INSTANCE_ID, PLATFORM_BASE_DIR) ustawia się automatycznie w AWS SSM Parameter Store!**
+**Wszystkie inne parametry (`EC2_INSTANCE_ID`, `PLATFORM_BASE_DIR`) ustawiają się automatycznie w AWS SSM Parameter Store!**
 
 ## AWS - jednorazowa konfiguracja OIDC
 
@@ -90,7 +88,7 @@ IAM -> Identity Providers -> Add provider:
 
 ### 2. Rola IAM
 
-Utworz role IAM z trust policy:
+Utwórz rolę IAM z trust policy:
 
 ```json
 {
@@ -111,120 +109,111 @@ Utworz role IAM z trust policy:
 }
 ```
 
-### 3. Polityka uprawnien
+### 3. Polityka uprawnień
 
-Do celow pokazowych/deweloperskich mozna przypisac jedna polityke:
+Do celów pokazowych/deweloperskich można przypisać jedną politykę:
 
 - **`AdministratorAccess`** (`arn:aws:iam::aws:policy/AdministratorAccess`)
 
-Daje pelny dostep do wszystkich uslug AWS. W produkcji nalezy ja rozdzielic na mniejsze polityki:
+Daje pełny dostęp do wszystkich usług AWS. W produkcji należy ją rozdzielić na mniejsze polityki:
 
 | Polityka | Zakres |
 |----------|--------|
-| `AmazonEC2FullAccess` | Zarzadzanie instancjami EC2 |
+| `AmazonEC2FullAccess` | Zarządzanie instancjami EC2 |
 | `AmazonSSMFullAccess` | Session Manager + Run Command |
-| `AmazonVPCFullAccess` | Siec VPC, Subnets, SG |
+| `AmazonVPCFullAccess` | Sieć VPC, Subnets, SG |
 | `IAMFullAccess` | Role, profile instancji |
 
-## Szybki start (pełna automatyzacja - GitHub Actions)
+### 4. GitHub Secrets & Variables
 
-### 1. Konfiguracja AWS (OIDC) - jednorazowo
+Settings -> Secrets and variables -> Actions:
 
-#### a) Utwórz OIDC Provider w AWS
+**Secrets:**
+- `AWS_ROLE_ARN`: `arn:aws:iam::ACCOUNT_ID:role/github-actions-role`
 
-IAM -> Identity Providers -> Add provider:
+**Variables:**
 
-- **Type:** OpenID Connect
-- **URL:** `https://token.actions.githubusercontent.com`
-- **Audience:** `sts.amazonaws.com`
+| Name | Value | Opis |
+|------|-------|------|
+| `AWS_REGION` | `eu-central-1` | Region AWS |
+| `PLATFORM_NAME` | `omnia-platform` | Nazwa platformy (prefix SSM i S3 bucket) |
 
-#### b) Utwórz IAM Role dla GitHub Actions
+> 💡 **Hasło Grafana:** Workflow automatycznie zarządza hasłem przez SSM Parameter Store. Jeśli hasło nie istnieje, generuje nowe i zapisuje jako `SecureString`. Hasło jest przekazywane do Ansible i używane przez aplikację.
 
-Utwórz rolę IAM z trust policy (patrz sekcja poniżej: "AWS - jednorazowa konfiguracja OIDC").
+## Szybki start (GitHub Actions)
 
-#### c) Ustawić Secret w GitHub
-
-Settings -> Secrets and variables -> Actions -> Create secret:
-
-- **Name:** `AWS_ROLE_ARN`
-- **Value:** `arn:aws:iam::ACCOUNT_ID:role/github-actions-role`
-
-### 2. Uruchom workflow "Utwórz Infrastrukturę"
+### 1. Utwórz infrastrukturę
 
 GitHub -> Actions -> "Utwórz Infrastrukturę" -> Run workflow
-
-Workflow korzysta z GitHub Variables (ustawionych w kroku 1):
-- `AWS_REGION`: region AWS (np. `eu-central-1`)
-- `PLATFORM_NAME`: nazwa platformy (np. `aws-omnia-platform`)
 
 **Co się stanie:**
 - ✅ Automatyczna konfiguracja backendu (S3 bucket + native locking)
 - ✅ Terraform tworzy VPC, Subnet, Security Group, EC2, VPC Endpoints (SSM + S3)
 - ✅ Dynamiczny failover AZ - jeśli brakuje capacity, próbuje następną
-- ✅ **Parametry automatycznie zapisane w AWS SSM Parameter Store** (`/&lt;PLATFORM_NAME&gt;/` prefix):
-  - `/&lt;PLATFORM_NAME&gt;/EC2_INSTANCE_ID`
-  - `/&lt;PLATFORM_NAME&gt;/AWS_REGION`
-  - `/&lt;PLATFORM_NAME&gt;/PLATFORM_NAME`
-  - `/&lt;PLATFORM_NAME&gt;/PLATFORM_BASE_DIR`
-- ✅ Gotowe do użytku!
+- ✅ **Parametry automatycznie zapisane w AWS SSM Parameter Store** (`/<PLATFORM_NAME>/` prefix):
+  - `/<PLATFORM_NAME>/EC2_INSTANCE_ID`
+  - `/<PLATFORM_NAME>/AWS_REGION`
+  - `/<PLATFORM_NAME>/PLATFORM_NAME`
+  - `/<PLATFORM_NAME>/PLATFORM_BASE_DIR`
 
-### 3. Uruchom workflow "Uruchom Platform"
+### 2. Uruchom platformę
 
 GitHub -> Actions -> "Uruchom Platform" -> Run workflow
 
 **Co się stanie:**
 - ✅ Parametry automatycznie pobierane z AWS SSM Parameter Store
 - ✅ Instancja EC2 startuje
-- ✅ Ansible przez SSM wdrażana aplikacje z `apps.json`
+- ✅ Hasło Grafana zarządzane automatycznie przez SSM
+- ✅ Ansible przez SSM wdraża aplikacje z `apps.json`
 - ✅ Cloudflare tunnels tworzą publiczne URL-e
 
-### 4. Gotowe!
+### 3. Gotowe!
 
 Sprawdź podsumowanie workflow - tam są linki do aplikacji (https://*.trycloudflare.com).
 
-### 5. Zatrzymanie (oszczędność kosztów)
+### 4. Zatrzymanie platformy (oszczędność kosztów)
 
 GitHub -> Actions -> "Zatrzymaj Platform" -> Run workflow
 
-Wpisz `stop` aby potwierdzić.
+Potwierdź wpisując `stop`.
 
 **Co się stanie:**
 - ✅ Instancja zatrzymana (rachunki zamrożone)
-- ✅ Dane zachowane - uruchomienie zajmie ~3-5 minut
+- ✅ Dane zachowane – ponowne uruchomienie zajmie ~3–5 minut
 - ✅ Tunele Cloudflare zamknięte
 
-### 6. Zniszczenie infrastruktury (końcowe)
+### 5. Zniszczenie infrastruktury (końcowe)
 
 GitHub -> Actions -> "Zniszcz Infrastrukturę" -> Run workflow
 
-Wpisz `destroy` aby potwierdzić.
+Potwierdź wpisując `destroy`.
 
 **OSTRZEŻENIE: Ta operacja jest nieodwracalna!**
-- ✅ Wszystkie zasoby AWS usunięte
-- ✅ EBS volumes usunięte
-- ✅ **Parametry z AWS SSM Parameter Store usunięte**
+- ❌ Wszystkie zasoby AWS usunięte
+- ❌ EBS volumes usunięte
+- ❌ Parametry z AWS SSM Parameter Store usunięte
 - ⚠️ Brak kopii zapasowych
 
 ---
 
 ## AWS SSM Parameter Store - Konfiguracja automatyczna
 
-Wszystkie parametry konfiguracyjne są przechowywane w **AWS Systems Manager Parameter Store** pod prefixem `/&lt;PLATFORM_NAME&gt;/`:
+Wszystkie parametry konfiguracyjne są przechowywane w **AWS Systems Manager Parameter Store** pod prefixem `/<PLATFORM_NAME>/`:
 
 | Parameter | Wartość | Źródło | Użycie |
 |-----------|---------|--------|--------|
-| `/&lt;PLATFORM_NAME&gt;/EC2_INSTANCE_ID` | `i-0abc123def456789` | Terraform output | start/stop/destroy |
-| `/&lt;PLATFORM_NAME&gt;/AWS_REGION` | `eu-central-1` | Terraform variable | start/stop workflows |
-| `/&lt;PLATFORM_NAME&gt;/PLATFORM_NAME` | `omnia-platform` | GitHub Variable | S3 bucket naming |
-| `/&lt;PLATFORM_NAME&gt;/PLATFORM_BASE_DIR` | `/opt/omnia` | Workflow default | Ansible paths |
+| `/<PLATFORM_NAME>/EC2_INSTANCE_ID` | `i-0abc123def456789` | Terraform output | start/stop/destroy |
+| `/<PLATFORM_NAME>/AWS_REGION` | `eu-central-1` | Terraform variable | start/stop workflows |
+| `/<PLATFORM_NAME>/PLATFORM_NAME` | `omnia-platform` | GitHub Variable | S3 bucket naming |
+| `/<PLATFORM_NAME>/PLATFORM_BASE_DIR` | `/opt/omnia` | Workflow default | Ansible paths |
 
 **Zalety SSM Parameter Store:**
-- ✅ Brak hardcoded values w workflow'ach
-- ✅ Brak konieczności ręcznego ustawiania GitHub Variables
-- ✅ Parametry automatycznie czyszczone przy destroy
-- ✅ Centralne miejsce konfiguracji (AWS)
-- ✅ Integracja z AWS IAM (bezpieczeństwo)
-- ✅ Free tier (do 10,000 parameters)
+- ✅ **Brak hardcoded values w workflow’ach**
+- ✅ **Brak konieczności ręcznego ustawiania GitHub Variables**
+- ✅ **Parametry automatycznie czyszczone przy destroy**
+- ✅ **Centralne miejsce konfiguracji (AWS)**
+- ✅ **Integracja z AWS IAM (bezpieczeństwo)**
+- ✅ **Free tier (do 10 000 parametrów)**
 
 ---
 
@@ -235,20 +224,19 @@ Terraform automatycznie:
 4. Jeśli brakuje capacity - przechodzi do następnej AZ
 5. Jeśli żadna AZ nie ma pojemności - wyrzuca błąd z komunikatem
 
-**Poprzednio:** Trzeba było ręcznie zmieniać `preferred_az_index` w tfvars.
+**Poprzednio:** Trzeba było ręcznie zmieniać `preferred_az_index` w `tfvars`.
 
 **Teraz:** Automatycznie próbuje kolejne AZ!
 
----
-
-## Workflow'i GitHub Actions
+## Workflow GitHub Actions
 
 | Workflow | Opis | Config Storage | Czyści koszty |
-|----------|------|---|---|
+|----------|------|----------------|---------------|
 | **Utwórz Infrastrukturę** | Terraform apply: VPC + EC2 + sieci | → SSM | ❌ Nie (EC2 startuje) |
 | **Uruchom Platform** | Ansible: Docker + aplikacje + Cloudflare | ← SSM | ❌ Nie |
 | **Zatrzymaj Platform** | Stop EC2 (oszczędza rachunki) | ← SSM | ✅ Tak |
 | **Zniszcz Infrastrukturę** | Terraform destroy + SSM cleanup | ← SSM | ✅ Tak |
+| **Wdróż Aplikacje** | Ansible: Wdrożenie aplikacji z apps.json | ← SSM | ❌ Nie |
 
 ### Przepływ konfiguracji
 
@@ -257,7 +245,7 @@ Terraform automatycznie:
    ↓
    Terraform outputs
    ↓
-   AWS SSM Parameter Store (/&lt;PLATFORM_NAME&gt;/*)
+   AWS SSM Parameter Store (/<PLATFORM_NAME>/*)
    ↓
 2. Uruchom Platform (automatycznie pobiera z SSM)
    ↓
@@ -267,12 +255,12 @@ Terraform automatycznie:
    ↓
    EC2 stopped
    ↓
-4. Zniszcz Infrastrukturę (usuwaja z SSM po Terraform destroy)
+4. Zniszcz Infrastrukturę (usuwa z SSM po Terraform destroy)
    ↓
    Clean slate
 ```
 
----
+## Aplikacje
 
 Aplikacje są definiowane w `apps.json` i wdrażane przez Ansible (docker-compose lub docker run). Każda aplikacja ma własny podkatalog `app/<nazwa>/`.
 
@@ -280,16 +268,16 @@ Szczegóły konfiguracji, lista dostępnych aplikacji i instrukcja dodawania now
 
 ➡️ **[app/README.md](app/README.md)**
 
-## Bezpieczenstwo i Architektura Sieciowa (Zero Trust)
+## Bezpieczeństwo i Architektura Sieciowa (Zero Trust)
 
 Projekt demonstruje zaawansowane podejście DevOps do bezpieczeństwa, infrastruktury jako kodu (IaC) oraz optymalizacji kosztów:
 
 - **Ukryte wyjście na świat (Cloudflare WARP):** Instancja EC2 celowo nie posiada publicznego adresu IPv4, co znacząco obniża koszty AWS (EIP). Komunikacja w stronę klasycznego internetu IPv4 tunelowana jest bezpiecznie przez wdrożonego klienta WARP (`ansible/tasks/warp.yml`), dostarczając tzw. "kamuflaż" NAT64. Serwer ma dostęp do internetu, ale internet nie widzi serwera.
-- **Zero Inbound (Zamknięta Twierdza):** Security Group w AWS nie posiada ŻADNYCH reguł Ingress. Port 22 fizycznie nie funkcjonuje, pliki z kluczami SSH na maszynie nie istnieją. Wystawienie usług webowych na świat realizowane jest wyłącznie przez odwrócone tunele (`cloudflared`).
-- Zarzadzanie wylacznie przez AWS Systems Manager (SSM) autoryzowane via IAM, z wewnętrznym ruchem po bezpłatnym AWS Gateway Endpoint.
-- Ochrona przed atakami typu SSRF (wymuszone użycie IMDSv2).
-- CI/CD z pełną automatyzacją oraz autoryzacją OIDC (federacja GitHub Actions -> AWS) bez konieczności utrzymywania długowiecznych kluczy statycznych.
-- **Brak hardcoded credentials** - wszystkie hasła i tajne klucze aplikacyjne są przekazywane poprzez GitHub Secrets lub generowane automatycznie (np. Grafana) i bezpiecznie przetrzymywane w AWS SSM Parameter Store.
+- **Zero Inbound (Zamknięta Twierdza):** Security Group w AWS nie posiada żadnych reguł Ingress. Port 22 fizycznie nie funkcjonuje, pliki z kluczami SSH na maszynie nie istnieją. Wystawienie usług webowych na świat realizowane jest wyłącznie przez odwrócone tunele (`cloudflared`).
+- **Zarządzanie wyłącznie przez AWS Systems Manager (SSM)** autoryzowane via IAM, z wewnętrznym ruchem po bezpłatnym AWS Gateway Endpoint.
+- **Ochrona przed atakami SSRF** (wymuszone użycie IMDSv2).
+- **CI/CD z pełną automatyzacją** oraz autoryzacją OIDC (federacja GitHub Actions → AWS) bez konieczności utrzymywania długowiecznych kluczy statycznych.
+- **Brak hardcoded credentials** – wszystkie hasła i tajne klucze aplikacyjne są przekazywane poprzez GitHub Secrets lub generowane automatycznie (np. Grafana) i bezpiecznie przetrzymywane w AWS SSM Parameter Store.
 
 ---
 **Autor:** Grzegorz N  

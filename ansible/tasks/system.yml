@@ -17,7 +17,7 @@
 
 - name: Pobranie klucza GPG Docker z S3 (zamiast direct internet przez WARP)
   ansible.builtin.shell:
-    cmd: aws s3 cp "s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/bin/docker.gpg" /tmp/docker.gpg
+    cmd: aws s3 cp "s3://{{ ssm_s3_bucket_name }}/artifacts/bin/docker.gpg" /tmp/docker.gpg
     creates: /tmp/docker.gpg
 
 - name: Konwersja klucza GPG Docker (dearmor)

@@ -103,19 +103,12 @@ jobs:
           PLATFORM_BASE_DIR=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/PLATFORM_BASE_DIR" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "/opt/omnia")
           SSM_S3_BUCKET_NAME=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_NAME" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
           
-          # Pobierz parametry Grafany z SSM (SecureString dla hasla - --with-decryption)
+          # Pobierz login uzytkownika Grafany z SSM (opcjonalnie)
           GRAFANA_USER=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_USER" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "admin")
-          GRAFANA_PASS=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_PASSWORD" --with-decryption --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
           
-          # Jeśli hasło jest puste, wygeneruj nowe i zapisz w SSM jako SecureString
-          if [ -z "$GRAFANA_PASS" ] || [ "$GRAFANA_PASS" == "None" ]; then
-            GRAFANA_PASS=$(openssl rand -hex 12)
-            aws ssm put-parameter --name "/${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_PASSWORD" --value "$GRAFANA_PASS" --type "SecureString" --overwrite --region ${{ vars.AWS_REGION }} >/dev/null
-          fi
-          
-          # Maskowanie hasla - zapobiega wyswietleniu w logach GitHub Actions
-          echo "::add-mask::$GRAFANA_PASS"
-          
+          # Pobierz haslo Grafany z SSM (opcjonalnie) - jesli nie istnieje, generowane przez Ansible
+          GRAFANA_PASSWORD=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_PASSWORD" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+
           # Walidacja pobranych parametrow
           if [ -z "$EC2_INSTANCE_ID" ] || [ "$EC2_INSTANCE_ID" == "None" ]; then
             echo "::error::Brakuje parametru SSM: /${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID"
@@ -146,7 +139,7 @@ jobs:
           echo "platform_base_dir=$PLATFORM_BASE_DIR" >> $GITHUB_OUTPUT
           echo "ssm_s3_bucket_name=$SSM_S3_BUCKET_NAME" >> $GITHUB_OUTPUT
           echo "grafana_user=$GRAFANA_USER" >> $GITHUB_OUTPUT
-          echo "grafana_pass=$GRAFANA_PASS" >> $GITHUB_OUTPUT
+          echo "grafana_password=$GRAFANA_PASSWORD" >> $GITHUB_OUTPUT
           
           echo "✅ Parametry pobrane z SSM Parameter Store"
           echo "Instance ID: $EC2_INSTANCE_ID"
@@ -154,6 +147,8 @@ jobs:
           echo "Platform: $PLATFORM_NAME"
           echo "Base Dir: $PLATFORM_BASE_DIR"
           echo "S3 Bucket: $SSM_S3_BUCKET_NAME"
+          echo "Grafana User: $GRAFANA_USER"
+          echo "Grafana Password: ${GRAFANA_PASSWORD:+set (hidden)}"
 
       - name: Konfiguracja poswiadczen AWS (OIDC) - Terraform
         uses: aws-actions/configure-aws-credentials@v4
@@ -189,13 +184,13 @@ jobs:
 
           echo "Upload do S3..."
           aws s3 cp /tmp/cloudflared-linux-arm64 \
-            "s3://${SSM_S3_BUCKET_NAME}/bin/cloudflared-linux-arm64" \
+            "s3://${SSM_S3_BUCKET_NAME}/artifacts/bin/cloudflared-linux-arm64" \
             --region ${{ steps.ssm-params.outputs.aws_region }}
           aws s3 cp /tmp/docker.gpg \
-            "s3://${SSM_S3_BUCKET_NAME}/bin/docker.gpg" \
+            "s3://${SSM_S3_BUCKET_NAME}/artifacts/bin/docker.gpg" \
             --region ${{ steps.ssm-params.outputs.aws_region }}
 
-          echo "cloudflared i klucz GPG Docker gotowe w S3"
+          echo "cloudflared i klucz GPG Docker gotowe w S3 (artifacts/bin/)"
 
       - name: Weryfikacja uprawnien IAM instancji EC2 (zarzadzane przez Terraform)
         env:
@@ -350,14 +345,13 @@ jobs:
           PLATFORM_BASE_DIR: ${{ steps.ssm-params.outputs.platform_base_dir }}
           SSM_S3_BUCKET_NAME: ${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}
           GRAFANA_USER: ${{ steps.ssm-params.outputs.grafana_user }}
-          GRAFANA_PASS: ${{ steps.ssm-params.outputs.grafana_pass }}
           ANSIBLE_HOST_KEY_CHECKING: "False"
         run: |
           ansible-playbook ansible/playbook-platform.yml \
             -i ansible/inventory.yml \
             -v \
             --timeout 300 \
-            --extra-vars "grafana_admin_user=$GRAFANA_USER grafana_admin_password=$GRAFANA_PASS"
+            --extra-vars "grafana_admin_user=$GRAFANA_USER grafana_admin_password=$GRAFANA_PASSWORD ssm_s3_bucket_name=${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}"
 
       # =====================================================================
       # KROK 7: Ustawienie flagi PLATFORM_READY w SSM
