@@ -1,0 +1,119 @@
+# =============================================================================
+# FAZA 2b: Instalacja CloudWatch Agent (logi kontenera + metryki systemowe)
+# =============================================================================
+# Zbiera logi z kontenerow Docker i przesyla do CloudWatch Logs.
+# Wymaga: IAM role z logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents
+# Region: kaskada AWS_REGION env → domyslny eu-central-1. BRAK hardcode.
+# =============================================================================
+
+- name: "Ustawienie zmiennej regionu (kaskada: AWS_REGION env → domyslny)"
+  set_fact:
+    cw_agent_region: "{{ lookup('env', 'AWS_REGION') | default('eu-central-1', true) }}"
+
+- name: Pobranie pakietu CloudWatch Agent (arm64)
+  get_url:
+    url: "https://s3.{{ cw_agent_region }}.amazonaws.com/amazoncloudwatch-agent-{{ cw_agent_region }}/debian/arm64/latest/amazon-cloudwatch-agent.deb"
+    dest: /tmp/amazon-cloudwatch-agent.deb
+    mode: "0644"
+  register: cw_download
+  until: cw_download is success
+  retries: 3
+  delay: 5
+  when: cloudwatch_agent_install | default(true)
+
+- name: Instalacja CloudWatch Agent z pakietu .deb
+  apt:
+    deb: /tmp/amazon-cloudwatch-agent.deb
+    state: present
+  when: cloudwatch_agent_install | default(true)
+
+- name: Usuniecie pakietu instalacyjnego
+  file:
+    path: /tmp/amazon-cloudwatch-agent.deb
+    state: absent
+  when: cloudwatch_agent_install | default(true)
+
+- name: Konfiguracja rotacji logow Docker (json-file)
+  copy:
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+  register: docker_daemon_config
+  when: cloudwatch_agent_install | default(true)
+
+- name: Restart Docker jesli zmieniono konfiguracje logowania
+  systemd:
+    name: docker
+    state: restarted
+    daemon_reload: yes
+  when:
+    - cloudwatch_agent_install | default(true)
+    - docker_daemon_config.changed
+
+- name: Utworzenie katalogu na konfiguracje CloudWatch Agent
+  file:
+    path: /opt/aws/amazon-cloudwatch-agent/etc
+    state: directory
+    mode: "0755"
+  when: cloudwatch_agent_install | default(true)
+
+- name: Konfiguracja zbierania logow Docker przez CloudWatch Agent
+  copy:
+    content: |
+      {
+        "agent": {
+          "region": "{{ cw_agent_region }}",
+          "run_as_user": "root",
+          "debug": false
+        },
+        "logs": {
+          "logs_collected": {
+            "files": {
+              "collect_list": [
+                {
+                  "file_path": "/var/lib/docker/containers/*/*-json.log",
+                  "log_group_name": "/{{ platform_name }}/docker/containers",
+                  "log_stream_name": "{instance_id}",
+                  "timestamp_format": "%Y-%m-%dT%H:%M:%S.%fZ",
+                  "timezone": "UTC",
+                  "multi_line_start_pattern": "{",
+                  "retention_in_days": 14
+                }
+              ]
+            }
+          },
+          "force_flush_interval": 5
+        }
+      }
+    dest: /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+    mode: "0644"
+  when: cloudwatch_agent_install | default(true)
+
+- name: Uruchomienie CloudWatch Agent z nowa konfiguracja
+  shell: |
+    /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+      -a fetch-config \
+      -m ec2 \
+      -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
+      -s
+  register: cw_agent_start
+  changed_when:
+    - "'Created new config' in cw_agent_start.stdout or 'Start configuration' in cw_agent_start.stdout"
+  when: cloudwatch_agent_install | default(true)
+
+- name: Sprawdzenie statusu CloudWatch Agent
+  command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a status
+  changed_when: false
+  register: cw_agent_status
+  when: cloudwatch_agent_install | default(true)
+
+- name: Status CloudWatch Agent
+  debug:
+    msg: "{{ cw_agent_status.stdout_lines | default(['CloudWatch Agent pominieciy (cloudwatch_agent_install=false)']) }}"

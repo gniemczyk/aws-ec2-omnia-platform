@@ -1,0 +1,97 @@
+# =============================================================================
+# Grafana - Konfiguracja provisioning files z dynamiką AWS
+# =============================================================================
+
+- name: "Wykonanie konfiguracji Grafany"
+  block:
+    - name: "Ustawienie zmiennej AWS_REGION (kaskada: AWS_REGION env → domyslny)"
+      set_fact:
+        grafana_aws_region: "{{ lookup('env', 'AWS_REGION') | default('eu-central-1', true) }}"
+
+    - name: "DEBUG: Sprawdzenie zmiennej AWS_REGION"
+      debug:
+        msg: "AWS_REGION={{ grafana_aws_region }}"
+
+    - name: "Pobranie pierwszej instancji EC2 w domyslnym regionie (opcjonalnie, dla ustawienia domyslnej instancji)"
+      shell: |
+        aws ec2 describe-instances \
+          --region {{ grafana_aws_region }} \
+          --filters "Name=instance-state-name,Values=running" \
+          --query 'Reservations[0].Instances[0].InstanceId' \
+          --output text 2>/dev/null || echo ""
+      register: default_instance_id
+      changed_when: false
+      ignore_errors: true
+
+    - name: "Konfiguracja dashboardow - ustawienie domyslnego regionu i instancji"
+      shell: |
+        python3 << 'PYTHON_EOF'
+        import json, sys, os
+
+        aws_region = "{{ grafana_aws_region }}"
+        default_instance = "{{ default_instance_id.stdout | default('', true) }}"
+        dashboards_dir = "{{ apps_dir }}/grafana/dashboards"
+
+        def fix_dashboard(filepath):
+            with open(filepath, "r") as f:
+                dashboard = json.load(f)
+
+            for panel in dashboard.get("panels", []):
+                for target in panel.get("targets", []):
+                    if isinstance(target.get("period"), int):
+                        target["period"] = str(target["period"])
+                    elif not target.get("period"):
+                        target["period"] = "auto"
+                    target["metricEditorMode"] = 0
+                    target["metricQueryType"] = 0
+                    if target.get("metricQueryType") == 2:
+                        target["queryLanguage"] = "CWLI"
+                    else:
+                        target.pop("queryLanguage", None)
+
+            for var in dashboard.get("templating", {}).get("list", []):
+                if var.get("name") == "region":
+                    var["current"] = {"text": aws_region, "value": aws_region}
+                if var.get("name") == "instance":
+                    var["includeAll"] = True
+                    var["allValue"] = "*"
+                    if default_instance:
+                        var["current"] = {"text": default_instance, "value": default_instance}
+                    else:
+                        var["current"] = {"text": "All", "value": "*"}
+
+            with open(filepath, "w") as f:
+                json.dump(dashboard, f, indent=2)
+            return True
+
+        for fname in os.listdir(dashboards_dir):
+            if fname.endswith(".json"):
+                path = os.path.join(dashboards_dir, fname)
+                fix_dashboard(path)
+                print(f"OK: {fname}")
+
+        sys.exit(0)
+        PYTHON_EOF
+      changed_when: true
+
+    - name: "Generowanie cloudwatch.yml - datasource z authType ec2IAMRole"
+      copy:
+        # authType: ec2IAMRole - autentykacja przez IAM Role przypisana do instancji EC2.
+        # defaultRegion ustawiany z AWS_REGION (Ansible fact).
+        content: |
+          apiVersion: 1
+
+          datasources:
+            - name: CloudWatch
+              type: cloudwatch
+              access: proxy
+              uid: cloudwatch
+              isDefault: true
+              jsonData:
+                authType: ec2IAMRole
+                defaultRegion: {{ grafana_aws_region }}
+              editable: true
+        dest: "{{ apps_dir }}/grafana/provisioning/datasources/cloudwatch.yml"
+        mode: "0644"
+
+  when: apps | map(attribute='name') | select('equalto', 'grafana') | length > 0

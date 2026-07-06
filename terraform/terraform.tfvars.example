@@ -1,0 +1,42 @@
+# =============================================================================
+# Przykladowe zmienne Terraform - Omnia Platform
+# =============================================================================
+# UWAGA: Plik dla MANUALNEGO uzycia lokalnego (opcjonalnie).
+# 
+# Standardowo wszystkie zmienne sa przekazywane z GitHub Actions:
+#   GitHub -> Actions -> "Utwórz Infrastrukturę" -> Run workflow
+# 
+# Zmienna TYLKO jesli chcesz lokalnie:
+#   cp terraform.tfvars.example terraform.tfvars
+#   terraform init
+#   terraform apply -var="aws_region=eu-central-1"
+# =============================================================================
+
+# Region AWS - jedyna wymagana zmienna bez wartosci domyslnej
+aws_region = "eu-central-1"
+
+# Typ instancji EC2 (ARM64 Graviton)
+# t4g.small = 2 vCPU, 2GB RAM - minimum dla Docker
+# t4g.medium = 2 vCPU, 4GB RAM - wiecej kontenerow
+instance_type = "t4g.small"
+
+# Nazwa projektu - prefiks dla wszystkich zasobow AWS
+project_name = "omnia-platform"
+
+# Siec
+vpc_cidr    = "10.0.0.0/16"
+subnet_cidr = "10.0.1.0/24"
+
+# Dysk
+root_volume_size = 20
+root_volume_type = "gp3"
+
+# Preferowana strefa dostepnosci (0=a, 1=b, 2=c)
+# Jesli wybrana strefa nie ma pojemnosci - Terraform uzyje nastepnej dostepnej
+preferred_az_index = 0
+
+# Srodowisko
+environment = "platform"
+
+# Dodatkowe tagi (opcjonalne)
+additional_tags = {}

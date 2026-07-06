@@ -1,0 +1,59 @@
+# =============================================================================
+# FAZA 3: Wgranie konfiguracji i per-app vars
+# =============================================================================
+
+- name: Utworzenie katalogu bazowego platformy
+  file:
+    path: "{{ platform_base_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Skopiowanie apps.json na instancje
+  copy:
+    src: "../{{ apps_config_filename }}"
+    dest: "{{ apps_config_path }}"
+    mode: "0644"
+
+- name: Skopiowanie katalogu app/ na instancje (przez SSM copy)
+  copy:
+    src: "../app/"
+    dest: "{{ apps_dir }}/"
+    mode: "0755"
+
+- name: Odczyt i parsowanie apps.json
+  slurp:
+    src: "{{ apps_config_path }}"
+  register: apps_json_raw
+
+- name: Dekodowanie konfiguracji aplikacji
+  set_fact:
+    apps: "{{ apps_json_raw.content | b64decode | from_json }}"
+
+- name: Wyswietlenie aplikacji do wdrozenia
+  debug:
+    msg: "Wdrazanie {{ apps | length }} aplikacji: {{ apps | map(attribute='name') | join(', ') }}"
+
+# =============================================================================
+# Zaladowanie per-app vars (ansible/apps/<name>.yml)
+# Kazdy plik ladowany do zmiennej app_<name>
+# =============================================================================
+
+- name: Zaladowanie vars dla Grafany
+  include_vars:
+    file: apps/grafana.yml
+    name: app_grafana
+  when: apps | map(attribute='name') | select('equalto', 'grafana') | length > 0
+
+- name: Zaladowanie vars dla API
+  include_vars:
+    file: apps/api.yml
+    name: app_api
+  when: apps | map(attribute='name') | select('equalto', 'api') | length > 0
+
+# =============================================================================
+# Konfiguracja specyficzna dla aplikacji (provisioning files, itp)
+# =============================================================================
+
+- name: Konfiguracja Grafany - generowanie provisioning files z dynamiką AWS
+  import_tasks: tasks/grafana.yml
+  when: apps | map(attribute='name') | select('equalto', 'grafana') | length > 0

@@ -1,0 +1,346 @@
+# =============================================================================
+# ZNISZCZENIE INFRASTRUKTURY - Omnia Platform
+# =============================================================================
+# Automatyczne usunięcie EC2 + VPC + wszystkich zasobów.
+# Wyzwalane recznie przez workflow_dispatch.
+# OSTRZEZENIE: Ta operacja jest nieodwracalna!
+# =============================================================================
+
+name: "Zniszcz Infrastrukturę"
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Wpisz 'destroy' aby potwierdzic usunięcie WSZYSTKICH zasobów"
+        required: true
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  destroy-infrastructure:
+    name: "Zniszczenie infrastruktury Terraform"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      PLATFORM_NAME: ${{ vars.PLATFORM_NAME }}
+
+    steps:
+      # =====================================================================
+      # KROK 1: Walidacja potwierdzenia
+      # =====================================================================
+      - name: Walidacja potwierdzenia
+        if: github.event.inputs.confirm != 'destroy'
+        run: |
+          echo "::error::Wymagane potwierdzenie. Wpisz 'destroy' aby kontynuowac."
+          exit 1
+
+      # =====================================================================
+      # KROK 2: HEALTH CHECK - Weryfikacja infrastruktury
+      # =====================================================================
+      - name: Konfiguracja poswiadczen AWS (OIDC) - Health Check
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: github-actions-destroy-health-check
+
+      - name: Analiza stanu infrastruktury
+        id: health-check
+        run: |
+          echo "🏥 Analiza stanu infrastruktury..."
+          echo ""
+          
+          PLATFORM_NAME="${{ env.PLATFORM_NAME }}"
+          SUFFIX=$(echo -n "$PLATFORM_NAME" | sha256sum | cut -c1-6)
+          BUCKET_NAME="${PLATFORM_NAME}-tfstate-${SUFFIX}"
+          
+          # --- Sprawdzenie SSM ---
+          EC2_INSTANCE_ID=$(aws ssm get-parameter \
+            --name "/${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID" \
+            --region ${{ vars.AWS_REGION }} \
+            --query 'Parameter.Value' \
+            --output text 2>/dev/null || echo "")
+          
+          HAS_SSM="false"
+          if [ -n "$EC2_INSTANCE_ID" ] && [ "$EC2_INSTANCE_ID" != "None" ]; then
+            HAS_SSM="true"
+            echo "  ✅ SSM: EC2_INSTANCE_ID = $EC2_INSTANCE_ID"
+          else
+            echo "  ℹ️  SSM: brak EC2_INSTANCE_ID"
+          fi
+          
+          # --- Sprawdzenie S3 bucket ---
+          HAS_S3="false"
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" --region ${{ vars.AWS_REGION }} 2>/dev/null; then
+            HAS_S3="true"
+            echo "  ✅ S3: Bucket $BUCKET_NAME istnieje"
+          else
+            echo "  ℹ️  S3: Bucket $BUCKET_NAME nie istnieje"
+          fi
+          
+          # --- Decyzja ---
+          echo ""
+          echo "has_ssm=$HAS_SSM" >> $GITHUB_OUTPUT
+          echo "has_s3=$HAS_S3" >> $GITHUB_OUTPUT
+          echo "BUCKET_NAME=$BUCKET_NAME" >> $GITHUB_OUTPUT
+          echo "SUFFIX=$SUFFIX" >> $GITHUB_OUTPUT
+          
+          if [ "$HAS_SSM" == "false" ] && [ "$HAS_S3" == "false" ]; then
+            echo "ℹ️  Nic do zniszczenia - infrastruktura nie istnieje"
+            echo "destroy_needed=false" >> $GITHUB_OUTPUT
+          elif [ "$HAS_SSM" == "false" ] && [ "$HAS_S3" == "true" ]; then
+            echo "⚠️  Wykryto osierocony S3 bucket (brak SSM) - zostanie usunięty"
+            echo "destroy_needed=cleanup_only" >> $GITHUB_OUTPUT
+          else
+            echo "🔥 Pełna infrastruktura do zniszczenia"
+            echo "destroy_needed=full" >> $GITHUB_OUTPUT
+          fi
+
+      # =====================================================================
+      # KROK 3: Wczesny exit jesli nic nie istnieje
+      # =====================================================================
+      - name: Sprawdzenie czy jest co niszczyc
+        if: steps.health-check.outputs.destroy_needed == 'false'
+        run: |
+          echo "ℹ️  Infrastruktura nie istnieje - nic do zniszczenia."
+          echo "    Brak SSM parametrów i brak S3 bucketu."
+          echo ""
+          echo "## ℹ️ Nic do zniszczenia" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Infrastruktura nie istnieje. Brak zasobów do usunięcia." >> $GITHUB_STEP_SUMMARY
+          exit 1
+
+      # =====================================================================
+      # KROK 4: Ostrzezenie
+      # =====================================================================
+      - name: Ostrzezenie - weryfikacja zasobów
+        env:
+          BUCKET_NAME: ${{ steps.health-check.outputs.BUCKET_NAME }}
+        run: |
+          echo "::warning::OSTRZEZENIE: Za 10 sekund zostanie uruchomiona operacja niszczenia!"
+          echo "::warning::❌ ZASOBY DO USUNIĘCIA:"
+          echo "::warning::- EC2 Instance"
+          echo "::warning::- VPC i Subnety"
+          echo "::warning::- Security Groups"
+          echo "::warning::- IAM Role i Instance Profile"
+          echo "::warning::- VPC Endpoints"
+          echo "::warning::- EBS Volumes"
+          echo "::warning::- CloudWatch Log Group: /${{ env.PLATFORM_NAME }}/docker/containers"
+          echo "::warning::- S3 Bucket: $BUCKET_NAME"
+          echo "::warning::- SSM Parameters"
+          echo ""
+          echo "::warning::TA OPERACJA JE NIEODWRACALNA!"
+          sleep 10
+
+      # =====================================================================
+      # KROK 5: Pobranie repozytorium
+      # =====================================================================
+      - name: Pobranie repozytorium
+        uses: actions/checkout@v4
+
+      # =====================================================================
+      # KROK 6: Instalacja Terraform
+      # =====================================================================
+      - name: Instalacja Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          # Pinowana wersja - use_lockfile wymaga >= 1.10, reprodukowalnosc buildow
+          terraform_version: "1.12.0"
+
+      # =====================================================================
+      # KROK 7: Uwierzytelnianie do AWS przez OIDC
+      # =====================================================================
+      - name: Konfiguracja poswiadczen AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-destroy-infrastructure
+
+      # =====================================================================
+      # KROK 8: Terraform destroy (z polaczeniem do backendu S3)
+      # =====================================================================
+      - name: Terraform destroy
+        if: steps.health-check.outputs.destroy_needed == 'full'
+        working-directory: terraform
+        env:
+          BUCKET_NAME: ${{ steps.health-check.outputs.BUCKET_NAME }}
+        run: |
+          echo "🔥 Niszczenie infrastruktury Terraform..."
+          
+          # Init Z backendem S3 - terraform musi odczytac state zeby wiedziec co zniszczyc
+          terraform init -no-color -reconfigure \
+            -backend-config="bucket=$BUCKET_NAME" \
+            -backend-config="key=terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="use_lockfile=true"
+          
+          terraform destroy \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="project_name=${{ env.PLATFORM_NAME }}" \
+            -no-color \
+            -auto-approve
+          
+          echo "✅ Terraform destroy zakończony"
+
+      # =====================================================================
+      # KROK 9: Usunięcie parametrow SSM (tylko po udanym terraform destroy)
+      # =====================================================================
+      - name: Usunięcie parametrow SSM
+        if: steps.health-check.outputs.has_ssm == 'true'
+        run: |
+          echo "🗑️  Usuwanie parametrów SSM Parameter Store..."
+          
+          aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID nie istnieje"
+          aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/AWS_REGION" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/AWS_REGION" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/AWS_REGION nie istnieje"
+          aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/PLATFORM_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/PLATFORM_NAME" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/PLATFORM_NAME nie istnieje"
+          aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/PLATFORM_BASE_DIR" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/PLATFORM_BASE_DIR" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/PLATFORM_BASE_DIR nie istnieje"
+          aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_SUFFIX" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_SUFFIX" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_SUFFIX nie istnieje"
+          aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_NAME" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_NAME nie istnieje"
+          aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_USER" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_USER" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_USER nie istnieje"
+          aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_PASSWORD" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_PASSWORD" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_PASSWORD nie istnieje"
+          aws ssm delete-parameter --name "/${{ env.PLATFORM_NAME }}/PLATFORM_READY" --region ${{ env.AWS_REGION }} 2>/dev/null && echo "  ✅ /${{ env.PLATFORM_NAME }}/PLATFORM_READY" || echo "  ℹ️  /${{ env.PLATFORM_NAME }}/PLATFORM_READY nie istnieje"
+          
+          echo ""
+          echo "✅ Parametry SSM usunięte"
+
+      # =====================================================================
+      # KROK 10: Usunięcie CloudWatch Log Group
+      # =====================================================================
+      # Log group jest tworzony dynamicznie przez CloudWatch Agent na EC2
+      # z nazwa /<PLATFORM_NAME>/docker/containers (zdefiniowana w
+      # ansible/tasks/cloudwatch-agent.yml). Nie jest zarzadzany przez
+      # Terraform - wymaga recznego usuniecia.
+      # =====================================================================
+      - name: Usunięcie CloudWatch Log Group
+        run: |
+          LOG_GROUP_NAME="/${{ env.PLATFORM_NAME }}/docker/containers"
+          echo "🗑️  Usuwanie CloudWatch Log Group: $LOG_GROUP_NAME"
+          
+          if aws logs describe-log-groups \
+            --log-group-name-prefix "$LOG_GROUP_NAME" \
+            --region ${{ env.AWS_REGION }} \
+            --query 'logGroups[?logGroupName==`'"$LOG_GROUP_NAME"'`].logGroupName' \
+            --output text 2>/dev/null | grep -q "$LOG_GROUP_NAME"; then
+            
+            aws logs delete-log-group \
+              --log-group-name "$LOG_GROUP_NAME" \
+              --region ${{ env.AWS_REGION }}
+            echo "  ✅ CloudWatch Log Group usunięta: $LOG_GROUP_NAME"
+          else
+            echo "  ℹ️  CloudWatch Log Group nie istnieje: $LOG_GROUP_NAME"
+          fi
+
+      # =====================================================================
+      # KROK 11: Czyszczenie S3 - OSTATNI KROK (tylko jesli wszystko OK)
+      # =====================================================================
+      # S3 bucket jest usuwany NA KONCU bo:
+      # - Zawiera terraform.tfstate potrzebny do retry jesli cos failnie
+      # - Jesli terraform destroy + SSM cleanup sie udaly = bezpiecznie usunac
+      - name: Czyszczenie S3 Bucket
+        if: steps.health-check.outputs.has_s3 == 'true'
+        env:
+          BUCKET_NAME: ${{ steps.health-check.outputs.BUCKET_NAME }}
+        run: |
+          echo "🧹 Czyszczenie S3 Bucket: $BUCKET_NAME (ostatni krok)"
+          echo ""
+          
+          # Sprawdzenie czy bucket istnieje
+          if ! aws s3api head-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "ℹ️  Bucket nie istnieje - pomijam"
+            exit 0
+          fi
+          
+          echo "  📝 Batch usuwanie wszystkich wersji i delete markerów (batch po 1000)..."
+
+          TOTAL_DELETED=0
+          for ((i=1; i<=500; i++)); do
+            DELETE_PAYLOAD=$(aws s3api list-object-versions \
+              --bucket "$BUCKET_NAME" \
+              --region ${{ env.AWS_REGION }} \
+              --no-paginate \
+              --output json 2>/dev/null \
+              | jq '{Objects: [.Versions[]?, .DeleteMarkers[]? | {Key, VersionId}], Quiet: true}' \
+              2>/dev/null || echo '{}')
+
+            OBJECT_COUNT=$(echo "$DELETE_PAYLOAD" | jq '.Objects | length // 0')
+
+            [ "$OBJECT_COUNT" -eq 0 ] && break
+
+            echo "  Batch #$i: $OBJECT_COUNT obiektów..."
+
+            if aws s3api delete-objects \
+              --bucket "$BUCKET_NAME" \
+              --delete "$DELETE_PAYLOAD" \
+              --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+              echo "  Batch #$i usunięty"
+            else
+              echo "  ⚠️ Błąd batch #$i - próbuję indywidualnie..."
+              echo "$DELETE_PAYLOAD" | jq -r '.Objects[]? | "\(.Key) \(.VersionId)"' | \
+              while read -r KEY VID; do
+                [ -z "$KEY" ] && continue
+                aws s3api delete-object \
+                  --bucket "$BUCKET_NAME" \
+                  --key "$KEY" \
+                  --version-id "$VID" \
+                  --region ${{ env.AWS_REGION }} 2>/dev/null || true
+              done
+            fi
+
+            TOTAL_DELETED=$((TOTAL_DELETED + OBJECT_COUNT))
+            echo "  Postęp: $TOTAL_DELETED usuniętych"
+          done
+
+          echo "  ✅ Batch delete zakończony ($TOTAL_DELETED obiektów)"
+          
+          # Usun bucket
+          echo "  🪣 Usuwanie bucketu..."
+          aws s3 rb "s3://$BUCKET_NAME" --region ${{ env.AWS_REGION }} --force 2>/dev/null || true
+          
+          # Weryfikacja
+          if ! aws s3api head-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "✅ S3 Bucket usunięty pomyślnie"
+          else
+            echo "::warning::⚠️ Bucket nadal istnieje - może wymagać ręcznego usunięcia"
+          fi
+
+      # =====================================================================
+      # KROK 12: Podsumowanie
+      # =====================================================================
+      - name: Publikacja potwierdzenia zniszczenia
+        if: always()
+        env:
+          BUCKET_NAME: ${{ steps.health-check.outputs.BUCKET_NAME }}
+        run: |
+          echo "## ⚠️ Infrastruktura zniszczona" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | Wartosc |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Akcja | Usunięcie infrastruktury |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform Name | \`${{ env.PLATFORM_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Region | \`${{ env.AWS_REGION }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| S3 Bucket | \`$BUCKET_NAME\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Wykonał | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Czas | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Co zostało usunięte:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Instancja EC2" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ VPC i Subnety" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Security Groups" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ IAM Role i Instance Profile" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ VPC Endpoints" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ EBS Volumes" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ CloudWatch Log Group (\/\`${{ env.PLATFORM_NAME }}\`\/docker\/containers)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ S3 Bucket (razem z wszystkimi wersjonowanymi obiektami)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ SSM Parameters" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Następne kroki:" >> $GITHUB_STEP_SUMMARY
+          echo "1. GitHub Variables można usunąć manualnie w Settings > Variables and secrets > Actions" >> $GITHUB_STEP_SUMMARY
+          echo "2. Aby stworzyć nową infrastrukturę, uruchom 'Utwórz Infrastrukturę'" >> $GITHUB_STEP_SUMMARY
+          echo "3. Możesz zmienić PLATFORM_NAME aby stworzyć niezależne resources" >> $GITHUB_STEP_SUMMARY

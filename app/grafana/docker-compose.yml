@@ -1,0 +1,100 @@
+# =============================================================================
+# Grafana - Docker Compose
+# =============================================================================
+# Lokalnie:  cp .env.example .env -> docker-compose up
+# Produkcja: .env generowany automatycznie przez Ansible (apps.json + Secrets)
+# =============================================================================
+
+services:
+  grafana:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: omnia-grafana
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      # ============================================================
+      # Grafana - autoryzacja
+      # ============================================================
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+
+      # ============================================================
+      # AWS - region i endpointy (obowiazkowe!)
+      # UWAGA: Jesli zmienna nie jest zdefiniowana w .env, docker-compose
+      # ustawia ja na pusty string (NIE "undefined"). To powoduje, ze
+      # ${AWS_DEFAULT_REGION:eu-central-1} w provisioning YAML uzywa
+      # pustego stringa zamiast fallbacku.
+      # Rozwiazanie: uzywamy docker-compose interpolation
+      # z defaultem, aby zapewnic niepusta wartosc.
+      # ============================================================
+      - "AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-central-1}"
+      - "AWS_USE_DUALSTACK_ENDPOINT=${AWS_USE_DUALSTACK_ENDPOINT:-true}"
+
+      # ============================================================
+      # Logowanie - poziom INFO (produkcja)
+      # ============================================================
+      - GF_LOG_LEVEL=${GF_LOG_LEVEL:-info}
+
+      # ============================================================
+      # Baza danych SQLite - optymalizacja dla wspoldzielonego volume
+      # ============================================================
+      - GF_DATABASE_QUERY_RETRIES=3
+      - GF_DATABASE_TRANSACTION_RETRIES=10
+      - GF_DATABASE_WAL=true
+    volumes:
+      - grafana_data:/var/lib/grafana
+    labels:
+      platform: "omnia"
+      app: "grafana"
+
+  # =================================================================
+  # Init container - ładuje wszystkie dashboardy przez API Grafany
+  # Czeka aż Grafana się uruchomi, następnie wczytuje dashboardy
+  # =================================================================
+  grafana-dashboard-loader:
+    image: curlimages/curl:latest
+    container_name: omnia-grafana-dashboard-loader
+    network_mode: host
+    depends_on:
+      - grafana
+    environment:
+      - GRAFANA_URL=http://localhost:3000
+      - ADMIN_USER=${GF_SECURITY_ADMIN_USER}
+      - ADMIN_PASS=${GF_SECURITY_ADMIN_PASSWORD}
+    volumes:
+      - ./dashboards:/dashboards:ro
+    command: |
+      sh -c '
+        echo "⏳ Oczekiwanie na Grafanę..."
+        for i in $$(seq 1 30); do
+          if curl -s http://localhost:3000/api/health > /dev/null 2>&1; then
+            echo "✅ Grafana jest dostępna"
+            break
+          fi
+          echo "  Próba $$i/30..."
+          sleep 2
+        done
+
+        echo "📊 Ładowanie dashboardów..."
+        for dashboard in /dashboards/*.json; do
+          if [ -f "$$dashboard" ]; then
+            echo "  📄 Ładowanie: $$(basename $$dashboard)"
+            curl -X POST http://localhost:3000/api/dashboards/db \
+              -H "Content-Type: application/json" \
+              -u "$${ADMIN_USER}:$${ADMIN_PASS}" \
+              -d "{\"dashboard\":$(cat $$dashboard),\"overwrite\":true}" \
+              --silent --show-error
+            echo "    ✅ OK"
+          fi
+        done
+
+        echo "✅ Wszystkie dashboardy załadowane"
+        exit 0
+      '
+    restart: "no"
+
+volumes:
+  grafana_data:
+    driver: local

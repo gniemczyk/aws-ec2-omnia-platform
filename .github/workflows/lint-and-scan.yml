@@ -1,0 +1,202 @@
+# =============================================================================
+# Walidacja i Bezpieczeństwo (CI)
+# =============================================================================
+# Automatyczna walidacja Terraform i skanowanie bezpieczeństwa
+# Uruchamiane na push do main i develop
+# BLOKUJE merge jeśli występują problemy
+# =============================================================================
+
+name: "Walidacja i Bezpieczeństwo (CI)"
+
+on:
+  workflow_dispatch: # Możliwość ręcznego uruchomienia z GitHub Actions UI
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  lint-terraform:
+    name: "Walidacja Terraform"
+    runs-on: ubuntu-latest
+
+    steps:
+      # =====================================================================
+      # KROK 1: Pobranie repozytorium
+      # =====================================================================
+      - name: Pobranie repozytorium
+        uses: actions/checkout@v4
+
+      # =====================================================================
+      # KROK 2: Instalacja Terraform
+      # =====================================================================
+      - name: Instalacja Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          # Pinowana wersja - spatna ze wszystkimi workflow (use_lockfile wymaga >= 1.10)
+          terraform_version: "1.12.0"
+
+      # =====================================================================
+      # KROK 3: Sprawdzenie formatowania Terraform
+      # =====================================================================
+      - name: Sprawdzenie formatowania Terraform
+        working-directory: terraform
+        run: |
+          echo "Sprawdzenie formatowania plików Terraform..."
+          if ! terraform fmt -check -recursive; then
+            echo "::error::Pliki Terraform maja zle formatowanie! Uruchom: terraform fmt -recursive"
+            exit 1
+          fi
+          echo "Formatowanie OK"
+
+      # =====================================================================
+      # KROK 4: Inicjalizacja do walidacji
+      # =====================================================================
+      - name: Inicjalizacja do walidacji
+        working-directory: terraform
+        run: |
+          echo "🔧 Inicjalizacja Terraform (bez backendu, z upgrade providera)..."
+          terraform init -backend=false -upgrade -no-color
+
+      # =====================================================================
+      # KROK 5: Walidacja składni
+      # =====================================================================
+      - name: Walidacja składni Terraform
+        working-directory: terraform
+        run: |
+          echo "Walidacja skladni Terraform..."
+          if ! terraform validate -no-color; then
+            echo "::error::Bledy w skladni Terraform!"
+            exit 1
+          fi
+          echo "Skladnia OK"
+
+  security-scan:
+    name: "Skanowanie Bezpieczeństwa (Trivy)"
+    runs-on: ubuntu-latest
+
+    steps:
+      # =====================================================================
+      # KROK 1: Pobranie repozytorium
+      # =====================================================================
+      - name: Pobranie repozytorium
+        uses: actions/checkout@v4
+
+      # =====================================================================
+      # KROK 2: Instalacja Trivy
+      # =====================================================================
+      - name: Instalacja Trivy
+        run: |
+          echo "📦 Instalacja narzędzia Trivy..."
+          sudo apt-get update > /dev/null
+          sudo apt-get install -y wget apt-transport-https gnupg > /dev/null
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list > /dev/null
+          sudo apt-get update > /dev/null
+          sudo apt-get install -y trivy > /dev/null
+          echo "✅ Trivy zainstalowany"
+
+      # =====================================================================
+      # KROK 3: Skanowanie IaC, Dockerfile i konfiguracji (Trivy)
+      # =====================================================================
+      - name: "Skanowanie Bezpieczeństwa (Trivy) - IaC i Dockerfile"
+        run: |
+          echo "🔐 Skanowanie bezpieczeństwa IaC, Dockerfile i plików konfiguracji..."
+          echo ""
+          trivy config \
+            --exit-code 0 \
+            --severity MEDIUM,HIGH,CRITICAL \
+            --ignorefile .trivyignore \
+            --format table \
+            .
+          
+          echo ""
+          echo "---"
+          echo "🔐 Skanowanie Bezpieczeństwa ŚCISŁE - blokujemy HIGH i CRITICAL"
+          echo "---"
+          echo ""
+          
+          CRITICAL_OR_HIGH=$(trivy config \
+            --exit-code 0 \
+            --severity HIGH,CRITICAL \
+            --ignorefile .trivyignore \
+            --format json \
+            . | jq '[.Results[]?.Misconfigurations[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")] | length')
+          
+          if [ "$CRITICAL_OR_HIGH" -gt 0 ]; then
+            echo "❌ Znaleziono $CRITICAL_OR_HIGH wad bezpieczeństwa (HIGH/CRITICAL)!"
+            trivy config \
+              --exit-code 1 \
+              --severity HIGH,CRITICAL \
+              --ignorefile .trivyignore \
+              --format table \
+              .
+            exit 1
+          else
+            echo "✅ Brak wad o ważności HIGH lub CRITICAL"
+          fi
+
+      # =====================================================================
+      # KROK 4: Skanowanie zależności (opcjonalne)
+      # =====================================================================
+      - name: "Skanowanie Bezpieczeństwa - Zależności (Python, Node, etc)"
+        if: always() # Uruchomia się zawsze, nawet jeśli poprzedni krok się nie powiedzie
+        continue-on-error: true # Nie blokuje całego workflow, ale ostrzega
+        run: |
+          echo ""
+          echo "🔍 Skanowanie zależności..."
+          trivy fs \
+            --exit-code 0 \
+            --severity MEDIUM,HIGH,CRITICAL \
+            --ignorefile .trivyignore \
+            --format table \
+            . || true
+
+  summary:
+    name: "Podsumowanie Walidacji"
+    runs-on: ubuntu-latest
+    needs: [ lint-terraform, security-scan ]
+    if: always()
+
+    steps:
+      - name: "Podsumowanie"
+        run: |
+          echo "═════════════════════════════════════════════════════════════"
+          echo "📋 PODSUMOWANIE WALIDACJI I BEZPIECZEŃSTWA"
+          echo "═════════════════════════════════════════════════════════════"
+          echo ""
+          echo "Status jobów:"
+          echo "  - lint-terraform: ${{ needs.lint-terraform.result }}"
+          echo "  - security-scan: ${{ needs.security-scan.result }}"
+          echo ""
+          
+          LINT_STATUS="${{ needs.lint-terraform.result }}"
+          SECURITY_STATUS="${{ needs.security-scan.result }}"
+          
+          # Sprawdzenie czy wszystkie joby się powiodły
+          if [ "$LINT_STATUS" = "success" ] && [ "$SECURITY_STATUS" = "success" ]; then
+            echo "✅ Wszystkie sprawdzenia POWIODŁY SIĘ!"
+            echo ""
+            echo "✓ Formatowanie Terraform - OK"
+            echo "✓ Składnia Terraform - OK"
+            echo "✓ Bezpieczeństwo (Trivy) - OK"
+            echo ""
+            exit 0
+          else
+            echo "❌ NIEKTÓRE SPRAWDZENIA NIEUDANE:"
+            echo ""
+            if [ "$LINT_STATUS" != "success" ]; then
+              echo "  ❌ Walidacja Terraform: $LINT_STATUS"
+            else
+              echo "  ✅ Walidacja Terraform: success"
+            fi
+            
+            if [ "$SECURITY_STATUS" != "success" ]; then
+              echo "  ❌ Skanowanie Bezpieczeństwa: $SECURITY_STATUS"
+            else
+              echo "  ✅ Skanowanie Bezpieczeństwa: success"
+            fi
+            echo ""
+            echo "⚠️  WORKFLOW FAILED - Napraw błędy przed merge!"
+            exit 1
+          fi

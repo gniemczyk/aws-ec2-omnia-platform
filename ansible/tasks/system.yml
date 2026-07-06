@@ -1,0 +1,58 @@
+# =============================================================================
+# FAZA 1: Przygotowanie systemu
+# =============================================================================
+
+- name: Aktualizacja cache apt
+  apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Instalacja pakietow pomocniczych (wymagane dla repo Docker)
+  apt:
+    name:
+      - ca-certificates
+      - curl
+      - jq
+    state: present
+
+- name: Pobranie klucza GPG Docker z S3 (zamiast direct internet przez WARP)
+  ansible.builtin.shell:
+    cmd: aws s3 cp "s3://{{ ssm_s3_bucket_name }}/artifacts/bin/docker.gpg" /tmp/docker.gpg
+    creates: /tmp/docker.gpg
+
+- name: Konwersja klucza GPG Docker (dearmor)
+  ansible.builtin.command:
+    cmd: gpg --yes --dearmor --output /usr/share/keyrings/docker-archive-keyring.gpg /tmp/docker.gpg
+    creates: /usr/share/keyrings/docker-archive-keyring.gpg
+
+- name: Dodanie repozytorium APT Docker (arm64)
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=arm64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bookworm stable"
+    state: present
+    filename: docker
+    update_cache: yes
+
+- name: Instalacja Docker Engine i Compose Plugin v2
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - docker-compose-plugin
+    state: present
+
+- name: Uruchomienie i wlaczenie uslugi Docker
+  systemd:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Upewnienie sie, ze grupa docker istnieje
+  group:
+    name: docker
+    state: present
+
+- name: Dodanie ssm-user do grupy docker
+  user:
+    name: ssm-user
+    groups: docker
+    append: yes

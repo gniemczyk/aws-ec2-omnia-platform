@@ -1,0 +1,611 @@
+# =============================================================================
+# TWORZENIE INFRASTRUKTURY - Omnia Platform
+# =============================================================================
+# Automatyczne tworzenie EC2 + VPC + sieci przez Terraform.
+# Wyzwalane recznie przez workflow_dispatch.
+# Pobiera Terraform outputs i zapisuje w AWS SSM Parameter Store.
+# Wszystkie wartosci z AWS SSM Parameter Store/Secrets - BRAK hardcode.
+# =============================================================================
+
+name: "Utwórz Infrastrukturę"
+
+on:
+  workflow_dispatch:
+
+# Wymagane uprawnienia do uwierzytelniania AWS OIDC
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  create-infrastructure:
+    name: "Tworzenie infrastruktury Terraform"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      PLATFORM_NAME: ${{ vars.PLATFORM_NAME }}
+      AUTO_APPROVE: true
+    outputs:
+      instance_id: ${{ steps.terraform-output.outputs.instance_id }}
+      vpc_id: ${{ steps.terraform-output.outputs.vpc_id }}
+      security_group_id: ${{ steps.terraform-output.outputs.security_group_id }}
+      availability_zone: ${{ steps.terraform-output.outputs.availability_zone }}
+      iam_role_arn: ${{ steps.terraform-output.outputs.iam_role_arn }}
+
+    steps:
+      # =====================================================================
+      # KROK 0: Sprawdzenie czy infrastruktura juz istnieje w SSM
+      # =====================================================================
+      - name: Konfiguracja poswiadczen AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: github-actions-create-check
+
+      - name: Sprawdzenie istniejącej infrastruktury w SSM
+        run: |
+          EC2_INSTANCE_ID=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID" --region ${{ env.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          
+          if [ -n "$EC2_INSTANCE_ID" ] && [ "$EC2_INSTANCE_ID" != "None" ]; then
+            echo "::error::Infrastruktura już istnieje!"
+            echo "::error::EC2_INSTANCE_ID: $EC2_INSTANCE_ID"
+            echo ""
+            echo "❌ Tworzenie infrastruktury jest niemożliwe!"
+            echo ""
+            echo "Aby:"
+            echo "  1️⃣  Uruchomić platformę → użyj workflow 'Uruchom Platform'"
+            echo "  2️⃣  Zatrzymać platformę → użyj workflow 'Zatrzymaj Platform'"
+            echo "  3️⃣  Zniszczyć infrastrukturę → użyj workflow 'Zniszcz Infrastrukturę'"
+            echo ""
+            echo "Jeśli chcesz zacząć od nowa:"
+            echo "  - Najpierw uruchom 'Zniszcz Infrastrukturę'"
+            echo "  - SSM Parameters będą skasowane automatycznie"
+            echo "  - Wtedy będziesz mógł ponownie tworzyć infrastrukturę"
+            exit 1
+          else
+            echo "✅ Brak istniejącej infrastruktury - można tworzyć"
+          fi
+
+      # =====================================================================
+      # KROK 1: Pobranie repozytorium
+      # =====================================================================
+      - name: Pobranie repozytorium
+        uses: actions/checkout@v4
+
+      # =====================================================================
+      # KROK 2: Instalacja Terraform
+      # =====================================================================
+      - name: Instalacja Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          # Pinowana wersja - use_lockfile wymaga >= 1.10, reprodukowalnosc buildow
+          terraform_version: "1.12.0"
+
+      # =====================================================================
+      # KROK 3: Uwierzytelnianie do AWS przez OIDC (dla Terraform)
+      # =====================================================================
+      - name: Konfiguracja poswiadczen AWS (OIDC) - Terraform
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-create-infrastructure
+
+      # =====================================================================
+      # KROK 4: Generowanie SUFFIX z PLATFORM_NAME + Walidacja stanu
+      # =====================================================================
+      - name: Generowanie SUFFIX i walidacja stanu infrastruktury
+        id: suffix-gen
+        run: |
+          PLATFORM_NAME="${{ env.PLATFORM_NAME }}"
+          
+          # Generowanie SUFFIX z SHA256(PLATFORM_NAME)
+          SUFFIX=$(echo -n "$PLATFORM_NAME" | sha256sum | cut -c1-6)
+          BUCKET_NAME="${PLATFORM_NAME}-tfstate-${SUFFIX}"
+          
+          echo "SUFFIX=$SUFFIX" >> $GITHUB_OUTPUT
+          echo "BUCKET_NAME=$BUCKET_NAME" >> $GITHUB_OUTPUT
+          
+          # Komunikacja
+          echo "📊 Generowanie identyfikatora:"
+          echo "  PLATFORM_NAME: $PLATFORM_NAME"
+          echo "  SUFFIX (SHA256): $SUFFIX"
+          echo "  BUCKET_NAME: $BUCKET_NAME"
+          
+          # ============================================================
+          # WALIDACJA STANU INFRASTRUKTURY
+          # Scenariusze:
+          #   A) Bucket nie istnieje → czysty start (tworz wszystko)
+          #   B) Bucket istnieje + terraform.tfstate z zasobami → BLOKUJ
+          #      (infrastruktura juz wdrozona - uzytkownik powinien uzyc start/stop)
+          #   C) Bucket istnieje + brak tfstate LUB pusty tfstate → 
+          #      smieci z poprzedniego nieudanego runa → wyczysc i kontynuuj
+          # ============================================================
+          echo ""
+          echo "🔍 Analiza stanu infrastruktury..."
+          
+          # --- Sprawdzenie czy bucket istnieje ---
+          if ! aws s3api head-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "✅ Scenariusz A: Bucket nie istnieje - czysty start"
+            echo "INFRA_STATE=fresh" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "  ℹ️  Bucket $BUCKET_NAME istnieje"
+          
+          # --- Sprawdzenie czy terraform.tfstate istnieje w buckecie ---
+          if ! aws s3api head-object --bucket "$BUCKET_NAME" --key "terraform.tfstate" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "  ℹ️  Brak terraform.tfstate w buckecie"
+            echo "✅ Scenariusz C: Smieci z poprzedniego nieudanego runa"
+            echo "   → Backend istnieje ale terraform apply nigdy sie nie udal"
+            echo "   → Kontynuuje tworzenie (bucket zostanie ponownie wykorzystany)"
+            echo "INFRA_STATE=stale" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "  ℹ️  terraform.tfstate znaleziony - sprawdzam zawartosc..."
+          
+          # --- Pobranie i analiza terraform.tfstate ---
+          TFSTATE=$(aws s3 cp "s3://$BUCKET_NAME/terraform.tfstate" - --region ${{ env.AWS_REGION }} 2>/dev/null || echo "{}")
+          
+          # Sprawdzenie czy state ma realne zasoby (resources array nie jest pusty)
+          RESOURCE_COUNT=$(echo "$TFSTATE" | jq -r '.resources | length // 0' 2>/dev/null || echo "0")
+          
+          echo "  ℹ️  Liczba zasobów w terraform.tfstate: $RESOURCE_COUNT"
+          
+          if [ "$RESOURCE_COUNT" -gt 0 ]; then
+            # --- SCENARIUSZ B: Infrastruktura istnieje! ---
+            echo ""
+            echo "::error::❌ INFRASTRUKTURA JUŻ ISTNIEJE!"
+            echo "::error::"
+            echo "::error::Terraform state zawiera $RESOURCE_COUNT zasobów."
+            echo "::error::Tworzenie infrastruktury jest niemożliwe - zasoby są już wdrożone."
+            echo "::error::"
+            echo "::error::📋 CO ROBIĆ:"
+            echo "::error::  → Uruchomić platformę: workflow 'Uruchom Platform'"
+            echo "::error::  → Zatrzymać platformę: workflow 'Zatrzymaj Platform'"  
+            echo "::error::  → Zniszczyć wszystko: workflow 'Zniszcz Infrastrukturę'"
+            echo ""
+            
+            # Pokaz jakie zasoby istnieja
+            echo "📦 Istniejące zasoby:"
+            echo "$TFSTATE" | jq -r '.resources[] | "  - \(.type).\(.name)"' 2>/dev/null || true
+            
+            echo ""
+            echo "## ℹ️ Infrastruktura już istnieje" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Terraform state zawiera **$RESOURCE_COUNT zasobów**." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Dostępne akcje:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Uruchomić platformę** → workflow \`Uruchom Platform\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Zatrzymać platformę** → workflow \`Zatrzymaj Platform\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Zniszczyć i stworzyć od nowa** → workflow \`Zniszcz Infrastrukturę\`, potem \`Utwórz Infrastrukturę\`" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          
+          # --- SCENARIUSZ C: Pusty tfstate (apply sie uruchomil ale nic nie stworzyl) ---
+          echo "✅ Scenariusz C: terraform.tfstate istnieje ale jest pusty (0 zasobów)"
+          echo "   → Poprzedni run nie stworzył żadnych zasobów"
+          echo "   → Kontynuuje tworzenie infrastruktury"
+          echo "INFRA_STATE=stale" >> $GITHUB_OUTPUT
+
+      # =====================================================================
+      # KROK 5: Bootstrap Backend (S3 + DynamoDB) - IDEMPOTENTNY
+      # =====================================================================
+      - name: Bootstrap Backend
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+          SUFFIX: ${{ steps.suffix-gen.outputs.SUFFIX }}
+          INFRA_STATE: ${{ steps.suffix-gen.outputs.INFRA_STATE }}
+        run: |
+          echo "📦 Tworzenie/weryfikacja zasobów Backend (S3)..."
+          
+          # ==============================================================
+          # Czyszczenie stanu po nieudanym runie (jesli INFRA_STATE=stale)
+          # ==============================================================
+          if [ "$INFRA_STATE" == "stale" ]; then
+            echo ""
+            echo "🧹 Wykryto pozostałości z poprzedniego nieudanego runa - czyszczenie..."
+            
+            # Usun stary pusty terraform.tfstate (jesli istnieje) - terraform stworzy nowy
+            aws s3 rm "s3://$BUCKET_NAME/terraform.tfstate" --region ${{ env.AWS_REGION }} 2>/dev/null || true
+            aws s3 rm "s3://$BUCKET_NAME/.terraform.lock.hcl" --region ${{ env.AWS_REGION }} 2>/dev/null || true
+            
+            echo "✅ Czyszczenie zakończone"
+            echo ""
+          fi
+          
+          # ==============================================================
+          # S3 BUCKET (idempotentny - obsluguje retry po blednym runie)
+          # ==============================================================
+          echo "🪣 Sprawdzanie/tworzenie bucketu S3: $BUCKET_NAME"
+          
+          # Sprawdzenie czy bucket juz istnieje (np. z poprzedniego nieudanego runu)
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "ℹ️  Bucket $BUCKET_NAME już istnieje - pomijam tworzenie"
+          else
+            echo "🪣 Tworzenie bucketu S3: $BUCKET_NAME"
+            MAX_RETRIES=10
+            RETRY_DELAY=15
+            for i in $(seq 1 $MAX_RETRIES); do
+              if aws s3api create-bucket \
+                --bucket "$BUCKET_NAME" \
+                --region ${{ env.AWS_REGION }} \
+                --create-bucket-configuration LocationConstraint=${{ env.AWS_REGION }} 2>&1; then
+                echo "✅ Bucket utworzony pomyślnie"
+                break
+              else
+                if [ "$i" -eq "$MAX_RETRIES" ]; then
+                  echo "::error::Nie udało się utworzyć bucketu po $MAX_RETRIES próbach"
+                  exit 1
+                fi
+                echo "  ⏳ Próba $i/$MAX_RETRIES - bucket niedostępny (AWS zwalnia nazwę), czekam ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
+              fi
+            done
+          fi
+          
+          # Konfiguracja bucketa (idempotentne operacje - bezpieczne do ponownego uruchomienia)
+          echo "📝 Włączanie wersjonowania..."
+          aws s3api put-bucket-versioning \
+            --bucket "$BUCKET_NAME" \
+            --versioning-configuration Status=Enabled \
+            --region ${{ env.AWS_REGION }}
+          
+          echo "🔒 Blokowanie public access..."
+          aws s3api put-public-access-block \
+            --bucket "$BUCKET_NAME" \
+            --public-access-block-configuration \
+            "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" \
+            --region ${{ env.AWS_REGION }}
+          
+          echo "🔐 Włączanie szyfrowania..."
+          aws s3api put-bucket-encryption \
+            --bucket "$BUCKET_NAME" \
+            --server-side-encryption-configuration '{
+              "Rules": [{
+                "ApplyServerSideEncryptionByDefault": {
+                  "SSEAlgorithm": "AES256"
+                }
+              }]
+            }' \
+            --region ${{ env.AWS_REGION }}
+
+          echo "🗑️  Ustawianie lifecycle policy (limit wersji do 3)..."
+          aws s3api put-bucket-lifecycle-configuration \
+            --bucket "$BUCKET_NAME" \
+            --lifecycle-configuration '{
+              "Rules": [
+                {
+                  "ID": "LimitNoncurrentVersions",
+                  "Status": "Enabled",
+                  "Filter": {"Prefix": ""},
+                  "NoncurrentVersionExpiration": {
+                    "NoncurrentDays": 1,
+                    "NewerNoncurrentVersions": 3
+                  },
+                  "Expiration": {
+                    "ExpiredObjectDeleteMarker": true
+                  },
+                  "AbortIncompleteMultipartUpload": {
+                    "DaysAfterInitiation": 7
+                  }
+                }
+              ]
+            }' \
+            --region ${{ env.AWS_REGION }}
+
+          echo ""
+          echo "✅ Backend S3 gotowy!"
+
+      # =====================================================================
+      # KROK 5.5: Weryfikacja dostepnosci S3 bucket (eventual consistency)
+      # =====================================================================
+      - name: Weryfikacja dostepnosci S3 bucket
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+        run: |
+          echo "⏳ Weryfikacja dostępności bucketu S3: $BUCKET_NAME"
+          echo "   (AWS S3 eventual consistency - bucket może nie być od razu dostępny)"
+          echo ""
+          
+          MAX_RETRIES=12
+          RETRY_DELAY=10
+          
+          for i in $(seq 1 $MAX_RETRIES); do
+            if aws s3api head-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+              echo "✅ Bucket $BUCKET_NAME jest dostępny (próba $i/$MAX_RETRIES)"
+              break
+            else
+              if [ "$i" -eq "$MAX_RETRIES" ]; then
+                echo "::error::❌ Bucket $BUCKET_NAME nie jest dostępny po $MAX_RETRIES próbach ($(( MAX_RETRIES * RETRY_DELAY ))s)"
+                echo "::error::AWS S3 eventual consistency - spróbuj ponownie za minutę"
+                exit 1
+              fi
+              echo "  ⏳ Próba $i/$MAX_RETRIES - bucket niedostępny, czekam ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+            fi
+          done
+          
+          # Dodatkowa weryfikacja - ListObjectsV2 (ta sama operacja ktora uzywa Terraform)
+          echo ""
+          echo "🔍 Weryfikacja operacji ListObjectsV2..."
+          if aws s3api list-objects-v2 --bucket "$BUCKET_NAME" --max-keys 1 --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "✅ ListObjectsV2 działa poprawnie"
+          else
+            echo "⏳ ListObjectsV2 jeszcze niedostępny - czekam dodatkowe 15s..."
+            sleep 15
+            if aws s3api list-objects-v2 --bucket "$BUCKET_NAME" --max-keys 1 --region ${{ env.AWS_REGION }} 2>/dev/null; then
+              echo "✅ ListObjectsV2 działa poprawnie"
+            else
+              echo "::error::❌ ListObjectsV2 nadal nie działa - bucket może wymagać więcej czasu"
+              exit 1
+            fi
+          fi
+          
+          echo ""
+          echo "✅ Bucket S3 w pełni dostępny - kontynuowanie..."
+
+      # =====================================================================
+      # KROK 6: Terraform init
+      # =====================================================================
+      - name: Terraform init
+        working-directory: terraform
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+        run: |
+          echo "🔧 Inicjalizacja Terraform..."
+          terraform init -no-color \
+            -backend-config="bucket=$BUCKET_NAME" \
+            -backend-config="key=terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="use_lockfile=true"
+
+      # =====================================================================
+      # KROK 7: Terraform validate
+      # =====================================================================
+      - name: Terraform validate
+        working-directory: terraform
+        run: |
+          echo "✓ Walidacja składni Terraform..."
+          terraform validate -no-color
+
+      # =====================================================================
+      # KROK 8: Terraform plan
+      # =====================================================================
+      - name: Terraform plan
+        id: plan
+        working-directory: terraform
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+        run: |
+          echo "📋 Planowanie zmian..."
+          terraform plan \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="project_name=${{ env.PLATFORM_NAME }}" \
+            -var="ssm_s3_bucket_name=${{ env.BUCKET_NAME }}" \
+            -no-color \
+            -out=tfplan
+
+      # =====================================================================
+      # KROK 9: Terraform apply (manual approval lub auto)
+      # =====================================================================
+      - name: Terraform apply
+        id: apply
+        working-directory: terraform
+        run: |
+          if [ "${{ env.AUTO_APPROVE }}" == "true" ]; then
+            echo "✅ Auto-approve włączony - aplikowanie bez pytania"
+            terraform apply -no-color -auto-approve tfplan
+          else
+            echo "::warning::Czekanie na manualną akceptację workflow"
+            terraform apply -no-color tfplan
+          fi
+
+      # =====================================================================
+      # KROK 10: Pobranie outputow Terraform
+      # =====================================================================
+      - name: Pobranie Terraform outputow
+        id: terraform-output
+        working-directory: terraform
+        run: |
+          echo "📊 Pobieranie Terraform outputs..."
+          
+          # Pobierz wszystkie outputy w formacie JSON
+          OUTPUTS=$(terraform output -json)
+          
+          # Ekstrahuj wartości z JSON-a za pomocą jq
+          INSTANCE_ID=$(echo "$OUTPUTS" | jq -r '.instance_id.value')
+          VPC_ID=$(echo "$OUTPUTS" | jq -r '.vpc_id.value')
+          SG_ID=$(echo "$OUTPUTS" | jq -r '.security_group_id.value')
+          AZ=$(echo "$OUTPUTS" | jq -r '.availability_zone.value')
+          IAM_ROLE=$(echo "$OUTPUTS" | jq -r '.iam_role_arn.value')
+          
+          # Ustawienie output variables bez debug mode
+          {
+            echo "instance_id=$INSTANCE_ID"
+            echo "vpc_id=$VPC_ID"
+            echo "security_group_id=$SG_ID"
+            echo "availability_zone=$AZ"
+            echo "iam_role_arn=$IAM_ROLE"
+          } >> $GITHUB_OUTPUT
+          
+          echo "=== Terraform Outputs ===" 
+          echo "Instance ID: $INSTANCE_ID"
+          echo "VPC ID: $VPC_ID"
+          echo "Security Group: $SG_ID"
+          echo "Availability Zone: $AZ"
+          echo "IAM Role: $IAM_ROLE"
+
+      # =====================================================================
+      # KROK 10.5: Oczekiwanie na status check 2/2 instancji EC2
+      # =====================================================================
+      # Instancja po terraform apply musi:
+      #   1. Przejsc boot
+      #   2. Wykonac user_data (instalacja SSM Agent)
+      #   3. Zarejestrowac SSM Agent w AWS
+      # Dopiero po przejsciu obu status checkow (system + instance = 2/2)
+      # instancja jest gotowa do uzycia przez 'Uruchom Platform'.
+      # Bez tego kroku uzytkownik moze odpalic start-platform.yml zbyt wczesnie.
+      # =====================================================================
+      - name: Oczekiwanie na status check 2/2 instancji EC2
+        run: |
+          INSTANCE_ID="${{ steps.terraform-output.outputs.instance_id }}"
+          AWS_REGION="${{ env.AWS_REGION }}"
+          
+          echo "⏳ Oczekiwanie na status check 2/2 dla instancji $INSTANCE_ID..."
+          echo "   (system reachability + instance reachability)"
+          echo "   Obejmuje: boot OS, wykonanie user_data, uruchomienie SSM Agent"
+          echo ""
+          
+          # aws ec2 wait instance-status-ok czeka az oba status checks przejda (2/2)
+          # Domyslny timeout: 40 prob x 15s = 600s (10 min)
+          aws ec2 wait instance-status-ok \
+            --instance-ids "$INSTANCE_ID" \
+            --region "$AWS_REGION"
+          
+          echo "✅ Instancja przeszla status check 2/2"
+          
+          # Dodatkowa weryfikacja - sprawdzenie czy SSM Agent jest Online
+          echo ""
+          echo "🔍 Weryfikacja gotowosci SSM Agent..."
+          MAX_RETRIES=12
+          RETRY_INTERVAL=10
+          
+          for i in $(seq 1 $MAX_RETRIES); do
+            SSM_STATUS=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+              --query 'InstanceInformationList[0].PingStatus' \
+              --region "$AWS_REGION" \
+              --output text 2>/dev/null || echo "None")
+            
+            if [ "$SSM_STATUS" == "Online" ]; then
+              echo "✅ SSM Agent jest Online (proba $i/$MAX_RETRIES)"
+              echo "   Instancja jest w pelni gotowa do uzycia przez 'Uruchom Platform'"
+              break
+            fi
+            
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "::warning::SSM Agent nie jest jeszcze Online po $((MAX_RETRIES * RETRY_INTERVAL))s"
+              echo "::warning::Instancja moze potrzebowac dodatkowego czasu - poczekaj 1-2 min przed uruchomieniem 'Uruchom Platform'"
+              break
+            fi
+            
+            echo "  Proba $i/$MAX_RETRIES - SSM: $SSM_STATUS - czekam ${RETRY_INTERVAL}s..."
+            sleep $RETRY_INTERVAL
+          done
+
+      # =====================================================================
+      # KROK 11: Zapis Terraform outputs do AWS SSM Parameter Store
+      # =====================================================================
+      - name: Zapis parametrow do AWS SSM
+        env:
+          SUFFIX: ${{ steps.suffix-gen.outputs.SUFFIX }}
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+        run: |
+          INSTANCE_ID="${{ steps.terraform-output.outputs.instance_id }}"
+          AWS_REGION="${{ env.AWS_REGION }}"
+          PLATFORM_NAME="${{ env.PLATFORM_NAME }}"
+          PLATFORM_BASE_DIR="/opt/omnia"
+          
+          echo "💾 Zapisywanie parametrów do SSM Parameter Store..."
+          
+          aws ssm put-parameter \
+            --name "/${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID" \
+            --value "$INSTANCE_ID" \
+            --type "String" \
+            --overwrite \
+            --region ${{ env.AWS_REGION }}
+          
+          aws ssm put-parameter \
+            --name "/${{ env.PLATFORM_NAME }}/AWS_REGION" \
+            --value "$AWS_REGION" \
+            --type "String" \
+            --overwrite \
+            --region ${{ env.AWS_REGION }}
+          
+          aws ssm put-parameter \
+            --name "/${{ env.PLATFORM_NAME }}/PLATFORM_NAME" \
+            --value "$PLATFORM_NAME" \
+            --type "String" \
+            --overwrite \
+            --region ${{ env.AWS_REGION }}
+          
+          aws ssm put-parameter \
+            --name "/${{ env.PLATFORM_NAME }}/PLATFORM_BASE_DIR" \
+            --value "$PLATFORM_BASE_DIR" \
+            --type "String" \
+            --overwrite \
+            --region ${{ env.AWS_REGION }}
+          
+          aws ssm put-parameter \
+            --name "/${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_SUFFIX" \
+            --value "$SUFFIX" \
+            --type "String" \
+            --overwrite \
+            --region ${{ env.AWS_REGION }}
+          
+          aws ssm put-parameter \
+            --name "/${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_NAME" \
+            --value "$BUCKET_NAME" \
+            --type "String" \
+            --overwrite \
+            --region ${{ env.AWS_REGION }}
+          
+          echo "✅ Parametry zapisane w SSM Parameter Store (${{ env.AWS_REGION }})"
+
+      # =====================================================================
+      # KROK 12: Podsumowanie
+      # =====================================================================
+      - name: Publikacja podsumowania (SUCCESS)
+        if: success()
+        env:
+          BUCKET_NAME: ${{ steps.suffix-gen.outputs.BUCKET_NAME }}
+          SUFFIX: ${{ steps.suffix-gen.outputs.SUFFIX }}
+        run: |
+          echo "## ✅ Infrastruktura gotowa" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Wlasciwosc | Wartosc |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Instance ID | \`${{ steps.terraform-output.outputs.instance_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Region | \`${{ env.AWS_REGION }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| AZ | \`${{ steps.terraform-output.outputs.availability_zone }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| VPC | \`${{ steps.terraform-output.outputs.vpc_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Group | \`${{ steps.terraform-output.outputs.security_group_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| S3 Bucket | \`$BUCKET_NAME\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| SUFFIX | \`$SUFFIX\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔐 Polaczenie przez SSM" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "aws ssm start-session --target ${{ steps.terraform-output.outputs.instance_id }} --region ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## ⚙️ Następne kroki" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Uruchom workflow **'Uruchom Platform'** - będzie używać AWS SSM Parameter Store:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`/${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`/${{ env.PLATFORM_NAME }}/AWS_REGION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`/${{ env.PLATFORM_NAME }}/PLATFORM_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`/${{ env.PLATFORM_NAME }}/PLATFORM_BASE_DIR\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> 💡 Parametry zostały automatycznie zapisane w SSM Parameter Store"  >> $GITHUB_STEP_SUMMARY
+
+      - name: Publikacja podsumowania (FAILURE)
+        if: failure()
+        run: |
+          echo "## ❌ Błąd podczas tworzenia infrastruktury" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Workflow nie powiódł się. Sprawdź logi powyżej, aby znaleźć przyczynę." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Możliwe przyczyny:" >> $GITHUB_STEP_SUMMARY
+          echo "- ❌ Infrastruktura już istnieje - zmień PLATFORM_NAME i spróbuj ponownie" >> $GITHUB_STEP_SUMMARY
+          echo "- Brakuje AWS_ROLE_ARN w GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+          echo "- Brakuje AWS_REGION w GitHub Variables" >> $GITHUB_STEP_SUMMARY
+          echo "- Brakuje PLATFORM_NAME w GitHub Variables" >> $GITHUB_STEP_SUMMARY
+          echo "- Błędy uprawnień (odczyt z SSM Parameter Store)" >> $GITHUB_STEP_SUMMARY
+          echo "- Brak pojemności dla t4g.small w wybranym regionie/AZ" >> $GITHUB_STEP_SUMMARY

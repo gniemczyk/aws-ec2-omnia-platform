@@ -1,0 +1,448 @@
+# =============================================================================
+# URUCHOMIENIE PLATFORMY - Omnia Platform (Infrastruktura bazowa)
+# =============================================================================
+# Wyzwalane recznie przez workflow_dispatch.
+# Uruchamia EC2, instaluje WARP (IPv4), Docker, CloudWatch Agent.
+# NIE wdraza aplikacji - do tego sluzy workflow 'Wdroz Aplikacje'.
+#
+# Po zakonczeniu ustawia flage SSM /<platform>/PLATFORM_READY=true
+# jako warunek wstepny dla workflow deploy-apps.yml.
+#
+# Wszystkie wartosci pochodza z AWS SSM Parameter Store/Secrets - BRAK hardcode.
+# =============================================================================
+
+name: "Uruchom Platformę"
+
+on:
+  workflow_dispatch:
+
+# Wymagane uprawnienia do uwierzytelniania AWS OIDC
+permissions:
+  id-token: write
+  contents: read
+
+# Wszystkie wartosci z AWS SSM Parameter Store i Secrets - zero hardcode
+env:
+  AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+
+jobs:
+  start-platform:
+    name: "Uruchomienie infrastruktury Omnia Platform"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      PLATFORM_NAME: ${{ vars.PLATFORM_NAME }}
+
+    steps:
+      # =====================================================================
+      # KROK 0: HEALTH CHECK - Weryfikacja infrastruktury
+      # =====================================================================
+      - name: Konfiguracja poswiadczen AWS (OIDC) - Health Check
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: github-actions-start-health-check
+
+      - name: HEALTH CHECK - Sprawdzenie SSM Parameters
+        id: health-check
+        run: |
+          echo "🏥 Sprawdzanie zdrowotności infrastruktury..."
+          echo ""
+          
+          # Sprawdzenie czy EC2_INSTANCE_ID istnieje w SSM
+          EC2_INSTANCE_ID=$(aws ssm get-parameter \
+            --name "/${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID" \
+            --region ${{ vars.AWS_REGION }} \
+            --query 'Parameter.Value' \
+            --output text 2>/dev/null || echo "")
+          
+          if [ -z "$EC2_INSTANCE_ID" ] || [ "$EC2_INSTANCE_ID" == "None" ]; then
+            echo "::error::❌ INFRASTRUKTURA NIE ISTNIEJE!"
+            echo "::error::"
+            echo "::error::SSM Parameter Store jest pusty - brak EC2_INSTANCE_ID"
+            echo "::error::"
+            echo "::error::📋 CO ROBIĆ:"
+            echo "::error::1️⃣  Najpierw uruchom workflow: 'Utwórz Infrastrukturę'"
+            echo "::error::    (będzie utworzony: S3, EC2, VPC)"
+            echo "::error::"
+            echo "::error::2️⃣  Czekaj aż workflow się ukończy"
+            echo "::error::    (potrwa ~10-15 minut)"
+            echo "::error::"
+            echo "::error::3️⃣  Po sukcesie - uruchom workflow: 'Uruchom Platformę'"
+            echo "::error::    (wtedy będziesz tutaj)"
+            echo "::error::"
+            echo "::error::🔗 Linki do workflow'ów:"
+            echo "::error::   → https://github.com/${{ github.repository }}/actions"
+            exit 1
+          fi
+          
+          echo "✅ Infrastruktura istnieje!"
+          echo "   EC2_INSTANCE_ID: $EC2_INSTANCE_ID"
+          echo ""
+          echo "🚀 Kontynuuję uruchamianie platformy..."
+
+      # =====================================================================
+      # KROK 1: Konfiguracja AWS i pobranie parametrow z SSM
+      # =====================================================================
+      - name: Konfiguracja poswiadczen AWS (OIDC) - wstepnie
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: github-actions-start-fetch-params
+
+      - name: Pobranie parametrow z SSM
+        id: ssm-params
+        run: |
+          # Pobierz parametry z SSM
+          EC2_INSTANCE_ID=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          AWS_REGION=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/AWS_REGION" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          PLATFORM_NAME=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/PLATFORM_NAME" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          PLATFORM_BASE_DIR=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/PLATFORM_BASE_DIR" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "/opt/omnia")
+          SSM_S3_BUCKET_NAME=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_NAME" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+          
+          # Pobierz login uzytkownika Grafany z SSM (opcjonalnie)
+          GRAFANA_USER=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_USER" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "admin")
+          
+          # Pobierz haslo Grafany z SSM (opcjonalnie) - jesli nie istnieje, generowane przez Ansible
+          GRAFANA_PASSWORD=$(aws ssm get-parameter --name "/${{ env.PLATFORM_NAME }}/GRAFANA_ADMIN_PASSWORD" --region ${{ vars.AWS_REGION }} --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+
+          # Walidacja pobranych parametrow
+          if [ -z "$EC2_INSTANCE_ID" ] || [ "$EC2_INSTANCE_ID" == "None" ]; then
+            echo "::error::Brakuje parametru SSM: /${{ env.PLATFORM_NAME }}/EC2_INSTANCE_ID"
+            echo "::notice::Uruchom workflow 'Utwórz Infrastrukturę' aby je ustawic"
+            exit 1
+          fi
+          
+          if [ -z "$AWS_REGION" ] || [ "$AWS_REGION" == "None" ]; then
+            echo "::error::Brakuje parametru SSM: /${{ env.PLATFORM_NAME }}/AWS_REGION"
+            exit 1
+          fi
+          
+          if [ -z "$PLATFORM_NAME" ] || [ "$PLATFORM_NAME" == "None" ]; then
+            echo "::error::Brakuje parametru SSM: /${{ env.PLATFORM_NAME }}/PLATFORM_NAME"
+            exit 1
+          fi
+
+          if [ -z "$SSM_S3_BUCKET_NAME" ] || [ "$SSM_S3_BUCKET_NAME" == "None" ]; then
+            echo "::error::Brakuje parametru SSM: /${{ env.PLATFORM_NAME }}/TFSTATE_BUCKET_NAME"
+            echo "::notice::Bucket S3 jest wymagany przez Ansible SSM connection plugin"
+            exit 1
+          fi
+          
+          # Ustawienie output variables
+          echo "ec2_instance_id=$EC2_INSTANCE_ID" >> $GITHUB_OUTPUT
+          echo "aws_region=$AWS_REGION" >> $GITHUB_OUTPUT
+          echo "platform_name=$PLATFORM_NAME" >> $GITHUB_OUTPUT
+          echo "platform_base_dir=$PLATFORM_BASE_DIR" >> $GITHUB_OUTPUT
+          echo "ssm_s3_bucket_name=$SSM_S3_BUCKET_NAME" >> $GITHUB_OUTPUT
+          echo "grafana_user=$GRAFANA_USER" >> $GITHUB_OUTPUT
+          echo "grafana_password=$GRAFANA_PASSWORD" >> $GITHUB_OUTPUT
+          
+          echo "✅ Parametry pobrane z SSM Parameter Store"
+          echo "Instance ID: $EC2_INSTANCE_ID"
+          echo "Region: $AWS_REGION"
+          echo "Platform: $PLATFORM_NAME"
+          echo "Base Dir: $PLATFORM_BASE_DIR"
+          echo "S3 Bucket: $SSM_S3_BUCKET_NAME"
+          echo "Grafana User: $GRAFANA_USER"
+          echo "Grafana Password: ${GRAFANA_PASSWORD:+set (hidden)}"
+
+      - name: Konfiguracja poswiadczen AWS (OIDC) - Terraform
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ steps.ssm-params.outputs.aws_region }}
+          role-session-name: github-actions-start-platform
+
+      # =====================================================================
+      # KROK 1: Pobranie repozytorium (dla ansible/ i ansible/tasks/)
+      # =====================================================================
+      - name: Pobranie repozytorium
+        uses: actions/checkout@v4
+
+      # =====================================================================
+      # KROK 1b: Pobranie cloudflared, klucza GPG Docker i upload do S3
+      # Instancja EC2 nie ma publicznego IPv4, tylko IPv6 przez Egress-Only IGW.
+      # GitHub releases nie sa osiagalne przez IPv6 - pobieramy w runnerze
+      # i udostepniamy przez S3 (osiagalny przez VPC Gateway Endpoint - darmowy).
+      # =====================================================================
+      - name: Pobranie cloudflared i upload do S3
+        env:
+          SSM_S3_BUCKET_NAME: ${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}
+        run: |
+          echo "Pobieranie cloudflared-linux-arm64..."
+          curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64" \
+            -o /tmp/cloudflared-linux-arm64
+          chmod +x /tmp/cloudflared-linux-arm64
+
+          echo "Pobieranie klucza GPG Docker..."
+          curl -fsSL "https://download.docker.com/linux/debian/gpg" \
+            -o /tmp/docker.gpg
+
+          echo "Upload do S3..."
+          aws s3 cp /tmp/cloudflared-linux-arm64 \
+            "s3://${SSM_S3_BUCKET_NAME}/artifacts/bin/cloudflared-linux-arm64" \
+            --region ${{ steps.ssm-params.outputs.aws_region }}
+          aws s3 cp /tmp/docker.gpg \
+            "s3://${SSM_S3_BUCKET_NAME}/artifacts/bin/docker.gpg" \
+            --region ${{ steps.ssm-params.outputs.aws_region }}
+
+          echo "cloudflared i klucz GPG Docker gotowe w S3 (artifacts/bin/)"
+
+      - name: Weryfikacja uprawnien IAM instancji EC2 (zarzadzane przez Terraform)
+        env:
+          SSM_S3_BUCKET_NAME: ${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}
+          PLATFORM_NAME: ${{ steps.ssm-params.outputs.platform_name }}
+        run: |
+          # Uprawnienia S3 i SSM sa zarzadzane przez Terraform (resource: platform_access).
+          # Weryfikujemy tylko czy rola istnieje - brak inline policy (eliminacja IaC drift).
+          ROLE_NAME="${PLATFORM_NAME}-ec2-role"
+          
+          if aws iam get-role --role-name "$ROLE_NAME" > /dev/null 2>&1; then
+            echo "✅ Rola IAM ${ROLE_NAME} istnieje - uprawnienia S3/SSM zarzadzane przez Terraform"
+          else
+            echo "::error::Rola IAM ${ROLE_NAME} nie istnieje! Uruchom 'Utwórz Infrastrukturę' ponownie."
+            exit 1
+          fi
+
+      # =====================================================================
+      # KROK 2: Uruchomienie instancji EC2
+      # =====================================================================
+      - name: Uruchomienie instancji EC2
+        id: start-ec2
+        run: |
+          EC2_INSTANCE_ID="${{ steps.ssm-params.outputs.ec2_instance_id }}"
+          echo "Uruchamianie instancji: $EC2_INSTANCE_ID"
+
+          STATE=$(aws ec2 describe-instances \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --query 'Reservations[0].Instances[0].State.Name' \
+            --output text)
+
+          echo "Aktualny stan: $STATE"
+
+          if [ "$STATE" == "running" ]; then
+            echo "Instancja juz dziala"
+          elif [ "$STATE" == "stopped" ]; then
+            aws ec2 start-instances --instance-ids "$EC2_INSTANCE_ID"
+            echo "Komenda start wyslana"
+          else
+            echo "::error::Instancja w nieoczekiwanym stanie: $STATE"
+            exit 1
+          fi
+
+      # =====================================================================
+      # KROK 3: Oczekiwanie na stan running instancji
+      # =====================================================================
+      - name: Oczekiwanie na uruchomienie instancji
+        run: |
+          EC2_INSTANCE_ID="${{ steps.ssm-params.outputs.ec2_instance_id }}"
+          AWS_REGION="${{ steps.ssm-params.outputs.aws_region }}"
+          echo "Oczekiwanie na stan 'running'..."
+          aws ec2 wait instance-running --instance-ids "$EC2_INSTANCE_ID" --region "$AWS_REGION"
+          echo "Instancja dziala"
+
+      # =====================================================================
+      # KROK 4: Oczekiwanie na agenta SSM
+      # =====================================================================
+      - name: Oczekiwanie na gotowosc agenta SSM
+        run: |
+          EC2_INSTANCE_ID="${{ steps.ssm-params.outputs.ec2_instance_id }}"
+          AWS_REGION="${{ steps.ssm-params.outputs.aws_region }}"
+          echo "Oczekiwanie na rejestracje agenta SSM..."
+          MAX_RETRIES=${{ vars.SSM_MAX_RETRIES || '30' }}
+          RETRY_INTERVAL=${{ vars.SSM_RETRY_INTERVAL || '10' }}
+
+          for i in $(seq 1 $MAX_RETRIES); do
+            SSM_STATUS=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=$EC2_INSTANCE_ID" \
+              --query 'InstanceInformationList[0].PingStatus' \
+              --region "$AWS_REGION" \
+              --output text 2>/dev/null || echo "None")
+
+            if [ "$SSM_STATUS" == "Online" ]; then
+              echo "Agent SSM jest online (proba $i/$MAX_RETRIES)"
+              break
+            fi
+
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "::error::Agent SSM nie uruchomil sie po $((MAX_RETRIES * RETRY_INTERVAL))s"
+              exit 1
+            fi
+
+            echo "  Proba $i/$MAX_RETRIES - Status SSM: $SSM_STATUS - oczekiwanie ${RETRY_INTERVAL}s..."
+            sleep $RETRY_INTERVAL
+          done
+
+      # =====================================================================
+      # KROK 5: Instalacja Ansible i zaleznosci
+      # =====================================================================
+      - name: Instalacja Ansible i pluginu AWS SSM
+        run: |
+          pip install ansible boto3 botocore
+          
+          ansible-galaxy collection install -r ansible/requirements.yml --force
+          
+          # Instalacja Session Manager Plugin przez apt
+          curl -fsSL "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" \
+            -o /tmp/session-manager-plugin.deb
+          sudo apt-get update > /dev/null
+          sudo dpkg -i /tmp/session-manager-plugin.deb > /dev/null
+          
+          session-manager-plugin --version
+          ansible --version
+
+      # =====================================================================
+      # KROK 5.5: Re-check SSM Agent - wymagany przez Ansible aws_ssm plugin
+      # =====================================================================
+      # SSM Agent moze byc Online w KROK 4, ale po instalacji Ansible i pluginow
+      # (KROK 5 ~30-60s) moze przejsciowo stracic polaczenie. Re-check tuż przed
+      # ansible-playbook eliminuje "TargetNotConnected".
+      # =====================================================================
+      - name: Re-check SSM Agent przed Ansible
+        env:
+          EC2_INSTANCE_ID: ${{ steps.ssm-params.outputs.ec2_instance_id }}
+          AWS_REGION: ${{ steps.ssm-params.outputs.aws_region }}
+        run: |
+          echo "Re-check SSM Agent przed Ansible..."
+          MAX_RETRIES=30
+          RETRY_INTERVAL=10
+          
+          for i in $(seq 1 $MAX_RETRIES); do
+            SSM_STATUS=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=$EC2_INSTANCE_ID" \
+              --query 'InstanceInformationList[0].PingStatus' \
+              --region "$AWS_REGION" \
+              --output text 2>/dev/null || echo "None")
+              
+            if [ "$SSM_STATUS" == "Online" ]; then
+              echo "✅ SSM Agent Online (proba $i/$MAX_RETRIES) - uruchamiam Ansible..."
+              break
+            fi
+            
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "::error::SSM Agent nie jest Online po $((MAX_RETRIES * RETRY_INTERVAL))s"
+              echo "::error::Ansible nie moze sie polaczyc przez aws_ssm plugin"
+              exit 1
+            fi
+            
+            echo "  Proba $i/$MAX_RETRIES - SSM: $SSM_STATUS - czekam ${RETRY_INTERVAL}s..."
+            sleep $RETRY_INTERVAL
+          done
+
+      # =====================================================================
+      # KROK 6: Uruchomienie Ansible Playbook - TYLKO INFRASTRUKTURA
+      # Playbook: playbook-platform.yml (FAZY 0-2b: WARP, Docker, CloudWatch)
+      # =====================================================================
+      - name: Uruchomienie Ansible Playbook - Infrastruktura (WARP + Docker + CloudWatch)
+        env:
+          EC2_INSTANCE_ID: ${{ steps.ssm-params.outputs.ec2_instance_id }}
+          AWS_REGION: ${{ steps.ssm-params.outputs.aws_region }}
+          PLATFORM_NAME: ${{ steps.ssm-params.outputs.platform_name }}
+          PLATFORM_BASE_DIR: ${{ steps.ssm-params.outputs.platform_base_dir }}
+          SSM_S3_BUCKET_NAME: ${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}
+          GRAFANA_USER: ${{ steps.ssm-params.outputs.grafana_user }}
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+        run: |
+          ansible-playbook ansible/playbook-platform.yml \
+            -i ansible/inventory.yml \
+            -v \
+            --timeout 300 \
+            --extra-vars "grafana_admin_user=$GRAFANA_USER grafana_admin_password=$GRAFANA_PASSWORD ssm_s3_bucket_name=${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}"
+
+      # =====================================================================
+      # KROK 7: Ustawienie flagi PLATFORM_READY w SSM
+      # Flaga jest warunkiem wstepnym dla workflow deploy-apps.yml
+      # =====================================================================
+      - name: Ustawienie flagi PLATFORM_READY w SSM
+        if: success()
+        run: |
+          aws ssm put-parameter \
+            --name "/${{ steps.ssm-params.outputs.platform_name }}/PLATFORM_READY" \
+            --value "true" \
+            --type "String" \
+            --overwrite \
+            --region ${{ steps.ssm-params.outputs.aws_region }}
+          echo "✅ Flaga PLATFORM_READY ustawiona w SSM"
+
+      # =====================================================================
+      # KROK 8: Publikacja podsumowania
+      # =====================================================================
+      - name: Publikacja statusu platformy
+        if: success()
+        run: |
+          EC2_INSTANCE_ID="${{ steps.ssm-params.outputs.ec2_instance_id }}"
+          AWS_REGION="${{ steps.ssm-params.outputs.aws_region }}"
+          
+          echo "## ✅ Platforma bazowa uruchomiona pomyślnie!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Co zostało skonfigurowane:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Instancja EC2 uruchomiona" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Cloudflare WARP połączony (IPv4 dostępny)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Docker Engine zainstalowany i uruchomiony" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ CloudWatch Agent skonfigurowany" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Flaga PLATFORM_READY ustawiona w SSM" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Następny krok" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Uruchom workflow **'Wdróż Aplikacje'** aby wdrożyć kontenery i wystawić je przez Cloudflare Tunnels." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 [Przejdź do workflow'ów](https://github.com/${{ github.repository }}/actions)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 Informacje o instancji" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Wlasciwosc | Wartosc |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Instance ID | \`$EC2_INSTANCE_ID\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Region | \`$AWS_REGION\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Uruchomil | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔐 Polaczenie SSH/SSM - KOPIUJ/WKLEJ" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Polaczenie przez AWS Session Manager (bez SSH, bez kluczy):" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "aws ssm start-session --target $EC2_INSTANCE_ID --region $AWS_REGION" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Wymagane:**" >> $GITHUB_STEP_SUMMARY
+          echo "- AWS CLI zainstalowane: \`brew install awscli\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Session Manager Plugin: \`brew install --cask session-manager-plugin\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Skonfigurowane AWS credentials (lub uzycie AWS_PROFILE)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Publikacja statusu platformy (FAILURE)
+        if: failure()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## ❌ Błąd podczas uruchamiania platformy" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Workflow nie powiódł się. Sprawdź logi powyżej." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Możliwe przyczyny:" >> $GITHUB_STEP_SUMMARY
+          echo "- Brakuje EC2_INSTANCE_ID w SSM Parameter Store" >> $GITHUB_STEP_SUMMARY
+          echo "- Instancja nie istnieje lub jest w nieoczekiwanym stanie" >> $GITHUB_STEP_SUMMARY
+          echo "- Agent SSM się nie uruchomił (instancja bez dostępu do VPC Endpoints/internetu)" >> $GITHUB_STEP_SUMMARY
+          echo "- Błąd w Ansible playbook - sprawdź logi" >> $GITHUB_STEP_SUMMARY
+
+      # =====================================================================
+      # KROK 9: Resetowanie flagi PLATFORM_READY w razie bledu
+      # Zabezpieczenie: jesli platforma nie uruchomila sie poprawnie,
+      # nie pozwalamy na deploy aplikacji
+      # =====================================================================
+      - name: Resetowanie flagi PLATFORM_READY (FAILURE)
+        if: failure()
+        run: |
+          aws ssm put-parameter \
+            --name "/${{ env.PLATFORM_NAME }}/PLATFORM_READY" \
+            --value "false" \
+            --type "String" \
+            --overwrite \
+            --region ${{ vars.AWS_REGION }} 2>/dev/null || true
+          echo "⚠️ Flaga PLATFORM_READY zresetowana z powodu bledu"

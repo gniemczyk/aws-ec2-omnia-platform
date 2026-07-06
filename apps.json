@@ -1,0 +1,16 @@
+[
+  {
+    "name": "grafana",
+    "image": "grafana/grafana:13.1.0-ubuntu",
+    "port": 3000,
+    "compose": true,
+    "env": []
+  },
+  {
+    "name": "api",
+    "image": "nginx:1.27-alpine",
+    "port": 80,
+    "compose": false,
+    "env": []
+  }
+]

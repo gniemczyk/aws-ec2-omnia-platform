@@ -1,0 +1,15 @@
+# =============================================================================
+# Trivy - Ignorowanie znanych podatności
+# =============================================================================
+# Format: CVE-XXXX-XXXXX lub ID podatności
+# Każdy wpis w osobnej linii
+# Użycie: Zdolności Trivy do ignorowania podatności, które:
+#   - Zostały już przeanalizowane
+#   - Zostały umieszczone na liście Known Vulnerabilities
+#   - Nie mają wpływu na naszą architekturę
+# =============================================================================
+
+# AWS-0104: Security group rule allows unrestricted egress to any IP address
+# UZASADNIENIE: Wymagane dla cloudflared tunnels - komunikacja wychodzaca
+# do sieci Cloudflare. Brak bezpośrednich portów przychodzących - bezpieczne.
+AWS-0104

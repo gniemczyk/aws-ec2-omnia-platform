@@ -1,0 +1,77 @@
+# =============================================================================
+# FAZA 6: Ekstrakcja URL-i tuneli i generowanie raportu Markdown
+# =============================================================================
+
+- name: Oczekiwanie na nawiazanie tuneli
+  pause:
+    seconds: "{{ tunnel_wait_seconds }}"
+
+- name: Ekstrakcja URL-i tuneli z logow
+  shell: |
+    grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' {{ tunnel_log_dir }}/{{ item.name }}.log | head -1
+  loop: "{{ apps }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: tunnel_urls
+  retries: 3
+  delay: 3
+  until: tunnel_urls.stdout | length > 0
+  ignore_errors: true
+
+- name: Weryfikacja tuneli (curl z instancji)
+  shell: |
+    URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' {{ tunnel_log_dir }}/{{ item.name }}.log | head -1)
+    if [ -n "$URL" ]; then
+      curl -sSf -o /dev/null --max-time 10 "$URL" 2>&1 && echo "OK: $URL" || echo "FAIL: $URL (curl exit: $?)"
+    else
+      echo "NO_URL: brak URL-a w logu {{ item.name }}"
+    fi
+  loop: "{{ apps }}"
+  loop_control:
+    label: "{{ item.name }}"
+  ignore_errors: true
+  register: tunnel_check
+
+- name: Logi tuneli jesli weryfikacja nieudana
+  command: "tail -30 {{ tunnel_log_dir }}/{{ item.item.name }}.log"
+  loop: "{{ tunnel_check.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: item.failed is defined and item.failed
+  no_log: false
+
+- name: Generowanie tabeli wynikow w formacie Markdown
+  copy:
+    content: |
+      ## {{ platform_name }} - Aktywne uslugi (KOPIUJ/WKLEJ linki)
+
+      | Aplikacja | Obraz | Port | Publiczny URL (Cloudflare) |
+      |-----------|-------|------|---------------------------|
+      {% for result in tunnel_urls.results %}
+      | {{ result.item.name }} | `{{ result.item.image }}` | {{ result.item.port }} | [Link]({{ result.stdout or 'oczekiwanie...' }}) - `{{ result.stdout or 'oczekiwanie...' }}` |
+      {% endfor %}
+
+      ### Grafana - dane logowania
+      | Parametr | Wartosc |
+      |----------|---------|
+      | Login | `{{ grafana_admin_user }}` |
+      | Haslo | *Pobierz z SSM:* `aws ssm get-parameter --name {{ ssm_root }}/GRAFANA_ADMIN_PASSWORD --with-decryption --query Parameter.Value --output text` |
+      > Aby ustawic wlasne haslo, zapisz je w SSM jako SecureString pod kluczem `{{ ssm_root }}/GRAFANA_ADMIN_PASSWORD`.
+
+      ---
+      ### Informacje
+      - **Wygenerowano:** {{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ'), true) }}
+      - **Instancja:** {{ ansible_host | default(lookup('env', 'EC2_INSTANCE_ID'), true) }}
+      - **Typ tunneli:** Cloudflare Quick Tunnels (efemeryczne - zmieniaja sie przy kazdym uruchomieniu)
+      - **Dostepnosc:** Tylko online gdy EC2 dziala
+    dest: "{{ results_file }}"
+    mode: "0644"
+
+- name: Odczyt wygenerowanego raportu
+  slurp:
+    src: "{{ results_file }}"
+  register: markdown_report
+
+- name: Wyswietlenie koncowego raportu
+  debug:
+    msg: "{{ markdown_report.content | b64decode }}"

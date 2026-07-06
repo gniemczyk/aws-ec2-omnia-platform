@@ -1,0 +1,86 @@
+# =============================================================================
+# Omnia Platform - Playbook INFRASTRUKTURA (Platforma bazowa)
+# =============================================================================
+# Uruchamia FAZY 0-2b: cloud-init, Cloudflare WARP, Docker, CloudWatch.
+# Po zakonczeniu platforma ma polaczenie IPv4 (WARP) i gotowy Docker Engine.
+#
+# Uzycie: ansible-playbook ansible/playbook-platform.yml -i ansible/inventory.yml
+# Wymagane env: EC2_INSTANCE_ID, AWS_REGION, PLATFORM_NAME, SSM_S3_BUCKET_NAME
+# =============================================================================
+
+---
+- name: "Omnia Platform - Infrastruktura bazowa"
+  hosts: omnia_instance
+  become: true
+  gather_facts: true
+
+  vars:
+    # Sciezki
+    apps_config_path: "{{ platform_base_dir }}/{{ apps_config_filename }}"
+    apps_dir: "{{ platform_base_dir }}/app"
+
+    # Prefiks dla SSM Parameter Store (np. /nazwa-platformy/)
+    ssm_root: "/{{ platform_name }}"
+
+    # Dane logowania do Grafany - nadpisywane przez --extra-vars (z GitHub Secrets)
+    # Zachowane tutaj dla kompatybilnosci - Grafana jest konfigurowana w fazie apps,
+    # ale haslo jest generowane/pobierane w GitHub Actions przed uruchomieniem playbooka
+    grafana_admin_user: admin
+    grafana_admin_password: ""
+
+  tasks:
+    # =========================================================================
+    # FAZA 0: Walidacja zmiennych
+    # =========================================================================
+
+    - name: Przywrocenie domyslnego uzytkownika admina jesli przekazano pusty
+      set_fact:
+        grafana_admin_user: admin
+      when: grafana_admin_user | length == 0
+
+    - name: FAZA 0b - Zarzadzanie haslem Grafana
+      ansible.builtin.debug:
+        msg: "Hasło i użytkownik Grafana zostały przekazane przez extra-vars."
+
+    # =========================================================================
+    # FAZA 1a: Oczekiwanie na cloud-init
+    # =========================================================================
+
+    - name: FAZA 1a - Oczekiwanie na gotowosc instancji (cloud-init)
+      command: cloud-init status --wait
+      changed_when: false
+
+    # =========================================================================
+    # FAZA 1b: Cloudflare WARP (polaczenie IPv4 z internetem)
+    # =========================================================================
+
+    - name: FAZA 1b - Instalacja i konfiguracja Cloudflare WARP (Dostep IPv4 do Internetu)
+      ansible.builtin.import_tasks: tasks/warp.yml
+
+    # =========================================================================
+    # FAZA 2: Docker i pakiety systemowe
+    # =========================================================================
+
+    - name: FAZA 2 - Przygotowanie systemu (Docker, glowne pakiety)
+      ansible.builtin.import_tasks: tasks/system.yml
+
+    # =========================================================================
+    # FAZA 2b: CloudWatch Agent (opcjonalnie)
+    # =========================================================================
+
+    - name: FAZA 2b - Instalacja CloudWatch Agent (logi kontenera)
+      ansible.builtin.import_tasks: tasks/cloudwatch-agent.yml
+      when: cloudwatch_agent_install | default(true)
+
+    # =========================================================================
+    # Podsumowanie
+    # =========================================================================
+
+    - name: Podsumowanie - Platforma bazowa gotowa
+      ansible.builtin.debug:
+        msg: |
+          ✅ Platforma bazowa uruchomiona pomyslnie!
+          - Cloudflare WARP: polaczony (IPv4 dostepny)
+          - Docker Engine: zainstalowany i uruchomiony
+          - CloudWatch Agent: {{ 'zainstalowany' if (cloudwatch_agent_install | default(true)) else 'pominiety' }}
+          Nastepny krok: Uruchom workflow 'Wdroz Aplikacje' aby wdrozyc kontenery.
