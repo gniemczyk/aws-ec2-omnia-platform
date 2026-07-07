@@ -50,8 +50,6 @@
     label: "{{ item.name }} (docker compose)"
   when: item.compose | default(false)
   register: compose_results
-  async: 1200
-  poll: 15
 
 - name: Wdrozenie aplikacji przez docker run (jesli compose=false)
   shell: |

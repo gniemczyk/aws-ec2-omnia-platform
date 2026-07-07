@@ -278,7 +278,7 @@ jobs:
           ansible-playbook ansible/playbook-apps.yml \
             -i ansible/inventory.yml \
             -v \
-            --timeout 120 \
+            --timeout 600 \
             --extra-vars "grafana_admin_user=$GRAFANA_USER grafana_admin_password=$GRAFANA_PASSWORD"
 
       # =====================================================================
