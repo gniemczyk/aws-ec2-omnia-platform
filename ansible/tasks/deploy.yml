@@ -23,6 +23,8 @@
     content: |
       # Wygenerowane automatycznie przez Ansible - nie edytowac recznie
       APP_PORT={{ item.port }}
+      AWS_DEFAULT_REGION={{ lookup('env', 'AWS_REGION') }}
+      AWS_REGION={{ lookup('env', 'AWS_REGION') }}
       {% for env_var in item.env | default([]) %}
       {{ env_var }}
       {% endfor %}
@@ -39,6 +41,15 @@
   loop_control:
     label: "{{ item.name }}"
   when: item.compose | default(false)
+
+- name: Wczytanie pre-built obrazow z S3 (jesli istnieja)
+  shell: |
+    aws s3 cp s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/images/{{ item.name }}.tar.gz - | gunzip | docker load || echo "Brak pre-built obrazu dla {{ item.name }}"
+  loop: "{{ apps }}"
+  loop_control:
+    label: "{{ item.name }} (image load)"
+  when: item.compose | default(false)
+  changed_when: true
 
 - name: Wdrozenie aplikacji przez docker compose (jesli compose=true)
   shell: |

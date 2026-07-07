@@ -5,24 +5,20 @@
 # Komiser automatycznie odczytuje IAM Role przypisana do instancji EC2,
 # wiec nie potrzebuje zewnetrznych kluczy dostepu.
 #
-# UWAGA: Budujemy z Dockerfile, poniewaz oficjalne obrazy tailwarden/komiser
-# maja uszkodzone tagi ARM64 (podpisane arm64, binary amd64 w srodku).
+# UWAGA: Obraz jest pre-budowany przez buildx na GitHub Runner i uploadowany
+# do S3. Na instancji jest pobierany i ladowany przez docker load przed deploy.
+# Dockerfile sluzy do lokalnego builda oraz jako buildx source.
 # =============================================================================
 
 services:
   komiser:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: tailwarden/komiser:3.1.22
     container_name: omnia-komiser
     restart: unless-stopped
     network_mode: host
     environment:
-      # ============================================================
-      # AWS - region domyslny
-      # ============================================================
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-central-1}
-      - AWS_REGION=${AWS_DEFAULT_REGION:-eu-central-1}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - AWS_REGION=${AWS_REGION}
     labels:
       platform: "omnia"
       app: "komiser"
