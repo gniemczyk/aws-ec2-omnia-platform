@@ -106,33 +106,20 @@ jobs:
           
           echo "✅ Instancja EC2 ($EC2_INSTANCE_ID) jest w stanie: running"
           
-          # Sprawdzenie agenta SSM z retry (przejściowy ConnectionLost)
-          echo "Sprawdzanie agenta SSM..."
-          MAX_RETRIES=12
-          RETRY_INTERVAL=10
-
-          for i in $(seq 1 $MAX_RETRIES); do
-            SSM_STATUS=$(aws ssm describe-instance-information \
-              --filters "Key=InstanceIds,Values=$EC2_INSTANCE_ID" \
-              --query 'InstanceInformationList[0].PingStatus' \
-              --region ${{ vars.AWS_REGION }} \
-              --output text 2>/dev/null || echo "None")
-
-            if [ "$SSM_STATUS" == "Online" ]; then
-              echo "✅ Agent SSM jest online (proba $i/$MAX_RETRIES)"
-              break
-            fi
-
-            if [ "$i" -eq "$MAX_RETRIES" ]; then
-              echo "::error::❌ Agent SSM nie jest online po $((MAX_RETRIES * RETRY_INTERVAL))s!"
-              echo "::error::Status: $SSM_STATUS"
-              echo "::error::Instancja moze nie byc w pelni gotowa. Uruchom 'Uruchom Platformę' najpierw."
-              exit 1
-            fi
-
-            echo "  Proba $i/$MAX_RETRIES - SSM: $SSM_STATUS - czekam ${RETRY_INTERVAL}s..."
-            sleep $RETRY_INTERVAL
-          done
+          # Sprawdzenie agenta SSM
+          SSM_STATUS=$(aws ssm describe-instance-information \
+            --filters "Key=InstanceIds,Values=$EC2_INSTANCE_ID" \
+            --query 'InstanceInformationList[0].PingStatus' \
+            --region ${{ vars.AWS_REGION }} \
+            --output text 2>/dev/null || echo "None")
+          
+          if [ "$SSM_STATUS" != "Online" ]; then
+            echo "::error::❌ Agent SSM nie jest online! Status: $SSM_STATUS"
+            echo "::error::Instancja moze nie byc w pelni gotowa. Poczekaj chwile lub uruchom 'Uruchom Platformę'."
+            exit 1
+          fi
+          
+          echo "✅ Agent SSM jest online"
 
       # =====================================================================
       # KROK 1: Pobranie parametrow z SSM
@@ -271,44 +258,6 @@ jobs:
 
           echo "::add-mask::$PASSWORD"
           echo "password=$PASSWORD" >> $GITHUB_OUTPUT
-
-      # =====================================================================
-      # KROK 4.5: Re-check SSM Agent - wymagany przez Ansible aws_ssm plugin
-      # =====================================================================
-      # SSM Agent moze byc Online w KROK 0, ale po instalacji Ansible i pluginow
-      # (KROK 3 ~30-60s) moze przejsciowo stracic polaczenie. Re-check tuż przed
-      # ansible-playbook eliminuje "TargetNotConnected".
-      # =====================================================================
-      - name: Re-check SSM Agent przed Ansible
-        env:
-          EC2_INSTANCE_ID: ${{ steps.ssm-params.outputs.ec2_instance_id }}
-          AWS_REGION: ${{ steps.ssm-params.outputs.aws_region }}
-        run: |
-          echo "Re-check SSM Agent przed Ansible..."
-          MAX_RETRIES=30
-          RETRY_INTERVAL=10
-
-          for i in $(seq 1 $MAX_RETRIES); do
-            SSM_STATUS=$(aws ssm describe-instance-information \
-              --filters "Key=InstanceIds,Values=$EC2_INSTANCE_ID" \
-              --query 'InstanceInformationList[0].PingStatus' \
-              --region "$AWS_REGION" \
-              --output text 2>/dev/null || echo "None")
-
-            if [ "$SSM_STATUS" == "Online" ]; then
-              echo "✅ SSM Agent Online (proba $i/$MAX_RETRIES) - uruchamiam Ansible..."
-              break
-            fi
-
-            if [ "$i" -eq "$MAX_RETRIES" ]; then
-              echo "::error::SSM Agent nie jest Online po $((MAX_RETRIES * RETRY_INTERVAL))s"
-              echo "::error::Ansible nie moze sie polaczyc przez aws_ssm plugin"
-              exit 1
-            fi
-
-            echo "  Proba $i/$MAX_RETRIES - SSM: $SSM_STATUS - czekam ${RETRY_INTERVAL}s..."
-            sleep $RETRY_INTERVAL
-          done
 
       # =====================================================================
       # KROK 5: Uruchomienie Ansible Playbook - APLIKACJE
