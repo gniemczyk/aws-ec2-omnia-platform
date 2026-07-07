@@ -11,6 +11,7 @@
 services:
   komiser:
     image: tailwarden/komiser:latest
+    platform: linux/arm64
     container_name: omnia-komiser
     restart: unless-stopped
     network_mode: host
