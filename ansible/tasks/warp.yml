@@ -104,6 +104,14 @@
   when: "'Connected' not in (warp_connection_status.stdout | default(''))"
   changed_when: true
 
+- name: Oczekiwanie na stabilizacje tunelu i routingu
+  ansible.builtin.pause:
+    seconds: 5
+  when: "'Connected' not in (warp_connection_status.stdout | default(''))"
+
+- name: Zresetowanie połączenia SSM (zapobiega zawieszeniu po zmianie routingu WARP)
+  meta: reset_connection
+
 - name: Utworzenie pliku usługi systemd dla poprawki MTU (1100)
   ansible.builtin.copy:
     dest: /etc/systemd/system/warp-mtu.service
