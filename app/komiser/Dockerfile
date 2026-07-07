@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 FROM --platform=$BUILDPLATFORM alpine:3.20 AS source
 RUN apk add --no-cache curl && \
     mkdir -p /src && \
@@ -22,8 +21,12 @@ RUN go mod download && \
     -ldflags="-s -w -X github.com/tailwarden/komiser/utils.Version=3.1.22" \
     -o /komiser .
 
-FROM --platform=$TARGETPLATFORM alpine:3.20
+FROM --platform=$BUILDPLATFORM alpine:3.20 AS os-packages
 RUN apk add --no-cache ca-certificates tzdata
+
+FROM alpine:3.20
+COPY --from=os-packages /etc/ssl/certs /etc/ssl/certs
+COPY --from=os-packages /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=go-builder /komiser /usr/bin/komiser
 EXPOSE 3001
 ENTRYPOINT ["/usr/bin/komiser", "start", "--port", "3001"]
