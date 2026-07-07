@@ -44,11 +44,9 @@
 
 - name: Wstrzykniecie AWS credentials do .env dla komiser (IMDS -> WARP bypass)
   shell: |
-    CREDS=$(aws configure export-credentials --format env 2>/dev/null)
+    CREDS=$(aws configure export-credentials --format env 2>/dev/null) || true
     if [ -n "$CREDS" ]; then
-      cat >> {{ apps_dir }}/komiser/.env << EOF
-$CREDS
-EOF
+      printf '%s\n' "$CREDS" >> {{ apps_dir }}/komiser/.env
       echo "OK - AWS credentials injected for komiser"
     else
       echo "WARN - Could not fetch AWS credentials"
