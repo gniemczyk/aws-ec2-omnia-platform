@@ -5,12 +5,15 @@
 # Komiser automatycznie odczytuje IAM Role przypisana do instancji EC2,
 # wiec nie potrzebuje zewnetrznych kluczy dostepu.
 #
-# UWAGA: Obraz tailwarden/komiser wspiera ARM64 natywnie (multi-arch manifest).
+# UWAGA: Budujemy z Dockerfile, poniewaz oficjalne obrazy tailwarden/komiser
+# maja uszkodzone tagi ARM64 (podpisane arm64, binary amd64 w srodku).
 # =============================================================================
 
 services:
   komiser:
-    image: tailwarden/komiser:3.1.22-arm64
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: omnia-komiser
     restart: unless-stopped
     network_mode: host
