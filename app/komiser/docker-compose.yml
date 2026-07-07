@@ -1,0 +1,30 @@
+# =============================================================================
+# Komiser - Docker Compose
+# =============================================================================
+# Aplikacja do monitorowania i wizualizacji zasobow AWS (Cloud Environment Inspector)
+# Komiser automatycznie odczytuje IAM Role przypisana do instancji EC2,
+# wiec nie potrzebuje zewnetrznych kluczy dostepu.
+# =============================================================================
+
+services:
+  komiser:
+    image: tailwarden/komiser:latest
+    container_name: omnia-komiser
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      # ============================================================
+      # Komiser PORT configuration
+      # Uzywamy portu 3001, poniewaz 3000 jest zajety przez Grafane,
+      # a obie aplikacje uzywaja network_mode: host.
+      # ============================================================
+      - PORT=${APP_PORT:-3001}
+      
+      # ============================================================
+      # AWS - region domyslny
+      # ============================================================
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-central-1}
+      - AWS_REGION=${AWS_DEFAULT_REGION:-eu-central-1}
+    labels:
+      platform: "omnia"
+      app: "komiser"

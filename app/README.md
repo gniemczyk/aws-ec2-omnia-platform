@@ -18,6 +18,7 @@ Każda aplikacja zawiera `.env.example` z opisem wymaganych zmiennych.
 | Katalog | Opis |
 |---------|------|
 | [grafana/](grafana/) | Panel monitoringu Grafana OSS |
+| [komiser/](komiser/) | Cloud Environment Inspector (Multi-region AWS Dashboard) |
 
 ## Dodawanie nowej aplikacji
 

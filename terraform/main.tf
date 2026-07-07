@@ -271,6 +271,12 @@ resource "aws_iam_role_policy_attachment" "ssm_core" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# Polityka ReadOnlyAccess - dla narzedzi audytowych (np. Komiser)
+resource "aws_iam_role_policy_attachment" "readonly_access" {
+  role       = aws_iam_role.platform_instance.name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
 # Polityka CloudWatch + EC2 Read - ZAWSZE dostepna (niezależna od S3/SSM)
 # Wymagana przez Grafane do odczytu metryk i listy instancji
 resource "aws_iam_role_policy" "cloudwatch_read" {
