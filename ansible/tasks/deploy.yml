@@ -44,12 +44,14 @@
   shell: |
     cd {{ apps_dir }}/{{ item.name }}
     docker compose down --remove-orphans 2>/dev/null || true
-    docker compose up -d --build
+    docker compose up -d --build --progress plain
   loop: "{{ apps }}"
   loop_control:
     label: "{{ item.name }} (docker compose)"
   when: item.compose | default(false)
   register: compose_results
+  async: 1200
+  poll: 15
 
 - name: Wdrozenie aplikacji przez docker run (jesli compose=false)
   shell: |
