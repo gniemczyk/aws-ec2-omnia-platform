@@ -2,8 +2,7 @@
 # Komiser - Docker Compose
 # =============================================================================
 # Aplikacja do monitorowania i wizualizacji zasobow AWS (Cloud Environment Inspector)
-# Komiser automatycznie odczytuje IAM Role przypisana do instancji EC2,
-# wiec nie potrzebuje zewnetrznych kluczy dostepu.
+# Konto AWS dodaje sie recznie przez UI w zakladce Cloud Accounts.
 #
 # UWAGA: Obraz jest pre-budowany przez buildx na GitHub Runner i uploadowany
 # do S3. Na instancji jest pobierany i ladowany przez docker load przed deploy.
@@ -16,9 +15,14 @@ services:
     container_name: omnia-komiser
     restart: unless-stopped
     network_mode: host
+    command: ["komiser", "start", "--port", "3001"]
+    volumes:
+      - ./config.toml:/config.toml
     environment:
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
       - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
     labels:
       platform: "omnia"
       app: "komiser"

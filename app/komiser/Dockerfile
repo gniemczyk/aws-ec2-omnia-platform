@@ -15,8 +15,11 @@ FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS go-builder
 ARG TARGETARCH
 COPY --from=source /src /app
 COPY --from=frontend-builder /app/dashboard/out /app/dashboard/out
+COPY patches/001-fix-aws-credentials.patch /tmp/
 WORKDIR /app
-RUN go mod download && \
+RUN apk add --no-cache patch && \
+    patch -p1 < /tmp/001-fix-aws-credentials.patch && \
+    go mod download && \
     GOARCH=$TARGETARCH CGO_ENABLED=0 go build \
     -ldflags="-s -w -X github.com/tailwarden/komiser/utils.Version=3.1.22" \
     -o /komiser .
