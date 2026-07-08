@@ -85,19 +85,33 @@ old_update = '''func (handler *ApiHandler) UpdateCloudAccountHandler(c *gin.Cont
 new_update = '''func (handler *ApiHandler) UpdateCloudAccountHandler(c *gin.Context) {
 \taccountId := c.Param("id")
 
-\tvar account models.Account
-\terr := json.NewDecoder(c.Request.Body).Decode(&account)
+\tvar body models.Account
+\terr := json.NewDecoder(c.Request.Body).Decode(&body)
 \tif err != nil {
 \t\tc.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 \t\treturn
 \t}
 
-\terr = handler.ctrl.UpdateAccount(c, account, accountId)
+\t// Fetch existing account from DB to preserve credentials if not provided in body
+\tif len(body.Credentials) == 0 {
+\t\taccounts, listErr := handler.ctrl.ListAccounts(c)
+\t\tif listErr == nil {
+\t\t\tfor _, a := range accounts {
+\t\t\t\tif strconv.FormatInt(a.Id, 10) == accountId {
+\t\t\t\t\tbody.Credentials = a.Credentials
+\t\t\t\t\tbreak
+\t\t\t\t}
+\t\t\t}
+\t\t}
+\t}
+
+\terr = handler.ctrl.UpdateAccount(c, body, accountId)
 \tif err != nil {
 \t\tc.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 \t\treturn
 \t}
 
+\t// Trigger rescan with the full account data (from DB for credentials)
 \taccounts, err := handler.ctrl.ListAccounts(c)
 \tif err == nil {
 \t\tfor _, a := range accounts {
@@ -108,7 +122,7 @@ new_update = '''func (handler *ApiHandler) UpdateCloudAccountHandler(c *gin.Cont
 \t\t}
 \t}
 
-\tc.JSON(http.StatusOK, account)
+\tc.JSON(http.StatusOK, body)
 }'''
 
 if old_update not in content:
