@@ -6,8 +6,19 @@ content = content.replace(
     'awsConfig "github.com/aws/aws-sdk-go-v2/config"\n\t"github.com/aws/aws-sdk-go-v2/credentials"'
 )
 
-old = '\t\t\tcfg, err := awsConfig.LoadDefaultConfig(context.Background())'
-new = '''\t\t\tcfg, err := awsConfig.LoadDefaultConfig(
+old_block = '''\t\t} else {
+\t\t\tcfg, err := awsConfig.LoadDefaultConfig(context.Background())
+\t\t\tif err != nil {
+\t\t\t\treturn nil, err
+\t\t\t}
+\t\t\treturn &providers.ProviderClient{
+\t\t\t\tAWSClient: &cfg,
+\t\t\t\tName:      account.Name,
+\t\t\t}, nil
+\t\t}'''
+
+new_block = '''\t\t} else if account.Credentials["source"] == "credentials-keys" {
+\t\t\tcfg, err := awsConfig.LoadDefaultConfig(
 \t\t\t\tcontext.Background(),
 \t\t\t\tawsConfig.WithCredentialsProvider(
 \t\t\t\t\tcredentials.NewStaticCredentialsProvider(
@@ -16,8 +27,26 @@ new = '''\t\t\tcfg, err := awsConfig.LoadDefaultConfig(
 \t\t\t\t\t\t"",
 \t\t\t\t\t),
 \t\t\t\t),
-\t\t\t)'''
-content = content.replace(old, new)
+\t\t\t)
+\t\t\tif err != nil {
+\t\t\t\treturn nil, err
+\t\t\t}
+\t\t\treturn &providers.ProviderClient{
+\t\t\t\tAWSClient: &cfg,
+\t\t\t\tName:      account.Name,
+\t\t\t}, nil
+\t\t} else {
+\t\t\tcfg, err := awsConfig.LoadDefaultConfig(context.Background())
+\t\t\tif err != nil {
+\t\t\t\treturn nil, err
+\t\t\t}
+\t\t\treturn &providers.ProviderClient{
+\t\t\t\tAWSClient: &cfg,
+\t\t\t\tName:      account.Name,
+\t\t\t}, nil
+\t\t}'''
+
+content = content.replace(old_block, new_block)
 
 with open('/src/handlers/helper.go', 'w') as f:
     f.write(content)
