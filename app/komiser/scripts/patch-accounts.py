@@ -113,7 +113,7 @@ if new_update not in content:
 print('UpdateCloudAccountHandler patched')
 
 # Add strconv import if not present
-if 'strconv' not in content:
+if '"strconv"' not in content:
     content = content.replace(
         '"github.com/gin-gonic/gin"',
         '"github.com/gin-gonic/gin"\n\t"strconv"'
