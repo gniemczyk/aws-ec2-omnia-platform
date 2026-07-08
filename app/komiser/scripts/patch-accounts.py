@@ -10,7 +10,7 @@ old_rescan = '''func (handler *ApiHandler) ReScanAccount(c *gin.Context) {
 \taccount.Status = "SCANNING"
 \trows, err := handler.ctrl.RescanAccount(c, account, accountId)
 \tif err != nil {
-\t\tlog.Error("Couldn\\'t set status", err)
+\t\tlog.Error("Couldn't set status", err)
 \t\treturn
 \t}
 \tif rows > 0 {
@@ -44,7 +44,7 @@ new_rescan = '''func (handler *ApiHandler) ReScanAccount(c *gin.Context) {
 \ttarget.Status = "SCANNING"
 \trows, err := handler.ctrl.RescanAccount(c, target, accountId)
 \tif err != nil {
-\t\tlog.Error("Couldn\\'t set status", err)
+\t\tlog.Error("Couldn't set status", err)
 \t\treturn
 \t}
 \tif rows > 0 {
@@ -54,7 +54,14 @@ new_rescan = '''func (handler *ApiHandler) ReScanAccount(c *gin.Context) {
 \tc.JSON(http.StatusOK, "Rescan Triggered")
 }'''
 
+if old_rescan not in content:
+    print('ERROR: Could not find ReScanAccount in source')
+    exit(1)
 content = content.replace(old_rescan, new_rescan)
+if new_rescan not in content:
+    print('ERROR: Failed to replace ReScanAccount')
+    exit(1)
+print('ReScanAccount patched')
 
 old_update = '''func (handler *ApiHandler) UpdateCloudAccountHandler(c *gin.Context) {
 \taccountId := c.Param("id")
@@ -96,7 +103,14 @@ new_update = '''func (handler *ApiHandler) UpdateCloudAccountHandler(c *gin.Cont
 \tc.JSON(http.StatusOK, account)
 }'''
 
+if old_update not in content:
+    print('ERROR: Could not find UpdateCloudAccountHandler in source')
+    exit(1)
 content = content.replace(old_update, new_update)
+if new_update not in content:
+    print('ERROR: Failed to replace UpdateCloudAccountHandler')
+    exit(1)
+print('UpdateCloudAccountHandler patched')
 
 # Add strconv import if not present
 if 'strconv' not in content:
