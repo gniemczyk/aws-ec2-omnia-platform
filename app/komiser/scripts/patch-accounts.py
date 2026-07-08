@@ -98,7 +98,15 @@ new_update = '''func (handler *ApiHandler) UpdateCloudAccountHandler(c *gin.Cont
 \t\treturn
 \t}
 
-\tgo fetchResourcesForAccount(handler.ctx, account, handler.db, []string{})
+\taccounts, err := handler.ctrl.ListAccounts(c)
+\tif err == nil {
+\t\tfor _, a := range accounts {
+\t\t\tif strconv.FormatInt(a.Id, 10) == accountId {
+\t\t\t\tgo fetchResourcesForAccount(handler.ctx, a, handler.db, []string{})
+\t\t\t\tbreak
+\t\t\t}
+\t\t}
+\t}
 
 \tc.JSON(http.StatusOK, account)
 }'''
