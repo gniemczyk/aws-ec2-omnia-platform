@@ -13,8 +13,9 @@ RUN npm ci --legacy-peer-deps && npm run build && \
 
 FROM --platform=$BUILDPLATFORM python:3.13-alpine AS patcher
 COPY --from=source /src /src
-COPY scripts/patch-credentials.py /tmp/patch.py
-RUN python3 /tmp/patch.py
+COPY scripts/patch-credentials.py /tmp/patch-credentials.py
+COPY scripts/patch-accounts.py /tmp/patch-accounts.py
+RUN python3 /tmp/patch-credentials.py && python3 /tmp/patch-accounts.py
 
 FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS go-builder
 ARG TARGETARCH
