@@ -11,15 +11,40 @@ ENV NODE_OPTIONS="--max-old-space-size=512"
 RUN npm ci --legacy-peer-deps && npm run build && \
     rm -rf node_modules /root/.npm
 
+FROM --platform=$BUILDPLATFORM python:3.13-alpine AS patcher
+COPY --from=source /src /src
+RUN python3 -c "
+with open('/src/handlers/helper.go', 'r') as f:
+    content = f.read()
+# add credentials import after awsConfig import
+content = content.replace(
+    'awsConfig \"github.com/aws/aws-sdk-go-v2/config\"',
+    'awsConfig \"github.com/aws/aws-sdk-go-v2/config\"\n\t\"github.com/aws/aws-sdk-go-v2/credentials\"'
+)
+# replace LoadDefaultConfig call with static credentials
+old = '\t\t\tcfg, err := awsConfig.LoadDefaultConfig(context.Background())'
+new = '''\t\t\tcfg, err := awsConfig.LoadDefaultConfig(
+\t\t\t\tcontext.Background(),
+\t\t\t\tawsConfig.WithCredentialsProvider(
+\t\t\t\t\tcredentials.NewStaticCredentialsProvider(
+\t\t\t\t\t\taccount.Credentials[\"aws_access_key_id\"],
+\t\t\t\t\t\taccount.Credentials[\"aws_secret_access_key\"],
+\t\t\t\t\t\t\"\",
+\t\t\t\t\t),
+\t\t\t\t),
+\t\t\t)'''
+content = content.replace(old, new)
+with open('/src/handlers/helper.go', 'w') as f:
+    f.write(content)
+print('Patch applied successfully')
+"
+
 FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS go-builder
 ARG TARGETARCH
-COPY --from=source /src /app
+COPY --from=patcher /src /app
 COPY --from=frontend-builder /app/dashboard/out /app/dashboard/out
-COPY patches/001-fix-aws-credentials.patch /tmp/
 WORKDIR /app
-RUN apk add --no-cache patch && \
-    patch -p1 < /tmp/001-fix-aws-credentials.patch && \
-    go mod download && \
+RUN go mod download && \
     GOARCH=$TARGETARCH CGO_ENABLED=0 go build \
     -ldflags="-s -w -X github.com/tailwarden/komiser/utils.Version=3.1.22" \
     -o /komiser .
