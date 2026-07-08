@@ -1,0 +1,6 @@
+[sqlite]
+file = "komiser.db"
+
+[[aws]]
+name = "komiser"
+source = "ENVIRONMENT_VARIABLES"

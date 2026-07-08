@@ -7,6 +7,13 @@
     "env": []
   },
   {
+    "name": "komiser",
+    "image": "tailwarden/komiser:latest",
+    "port": 3001,
+    "compose": true,
+    "env": []
+  },
+  {
     "name": "api",
     "image": "nginx:1.27-alpine",
     "port": 80,
