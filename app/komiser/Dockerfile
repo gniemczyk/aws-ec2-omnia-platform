@@ -28,9 +28,7 @@ RUN go mod download && \
     -o /komiser .
 
 FROM --platform=$BUILDPLATFORM alpine:3.20 AS os-packages
-RUN apk add --no-cache ca-certificates tzdata && \
-    mkdir -p /root/.aws && \
-    printf '[default]\nregion = eu-central-1\noutput = json\n' > /root/.aws/config
+RUN apk add --no-cache ca-certificates tzdata
 
 FROM alpine:3.20
 RUN addgroup -S komiser && adduser -S -G komiser komiser && \
