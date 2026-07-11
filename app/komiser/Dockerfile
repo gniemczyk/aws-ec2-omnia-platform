@@ -33,9 +33,11 @@ RUN apk add --no-cache ca-certificates tzdata && \
     printf '[default]\nregion = eu-central-1\noutput = json\n' > /root/.aws/config
 
 FROM alpine:3.20
+RUN addgroup -S komiser && adduser -S -G komiser komiser && \
+    mkdir -p /home/komiser/.aws && chown -R komiser:komiser /home/komiser
 COPY --from=os-packages /etc/ssl/certs /etc/ssl/certs
 COPY --from=os-packages /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=os-packages /root/.aws /root/.aws
 COPY --from=go-builder /komiser /usr/bin/komiser
+USER komiser
 EXPOSE 3001
 ENTRYPOINT ["/usr/bin/komiser", "start", "--port", "3001"]
