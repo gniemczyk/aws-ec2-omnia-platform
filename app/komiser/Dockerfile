@@ -28,14 +28,16 @@ RUN go mod download && \
     -o /komiser .
 
 FROM --platform=$BUILDPLATFORM alpine:3.20 AS os-packages
-RUN apk add --no-cache ca-certificates tzdata && \
-    mkdir -p /root/.aws && \
-    printf '[default]\nregion = eu-central-1\noutput = json\n' > /root/.aws/config
+RUN apk add --no-cache ca-certificates tzdata
 
 FROM alpine:3.20
+RUN addgroup -S komiser && adduser -S -G komiser komiser && \
+    mkdir -p /app /home/komiser/.aws && \
+    chown -R komiser:komiser /app /home/komiser
 COPY --from=os-packages /etc/ssl/certs /etc/ssl/certs
 COPY --from=os-packages /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=os-packages /root/.aws /root/.aws
 COPY --from=go-builder /komiser /usr/bin/komiser
+WORKDIR /app
+USER komiser
 EXPOSE 3001
 ENTRYPOINT ["/usr/bin/komiser", "start", "--port", "3001"]

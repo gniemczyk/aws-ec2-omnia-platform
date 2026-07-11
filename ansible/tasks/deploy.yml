@@ -45,6 +45,16 @@
     label: "{{ item.name }}"
   when: item.compose | default(false)
 
+- name: Generowanie pliku aws-config dla Komiser
+  copy:
+    content: |
+      [default]
+      region = {{ lookup('env', 'AWS_REGION') }}
+      output = json
+    dest: "{{ apps_dir }}/komiser/aws-config"
+    mode: "0644"
+  when: apps | selectattr('name', 'equalto', 'komiser') | list | length > 0
+
 
 
 - name: Wczytanie pre-built obrazow z S3 (jesli istnieja)
