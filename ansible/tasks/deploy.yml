@@ -23,6 +23,11 @@
     content: |
       # Wygenerowane automatycznie przez Ansible - nie edytowac recznie
       APP_PORT={{ item.port }}
+      AWS_DEFAULT_REGION={{ lookup('env', 'AWS_REGION') }}
+      AWS_REGION={{ lookup('env', 'AWS_REGION') }}
+      AWS_ACCESS_KEY_ID={{ lookup('env', 'AWS_ACCESS_KEY_ID') | default('', true) }}
+      AWS_SECRET_ACCESS_KEY={{ lookup('env', 'AWS_SECRET_ACCESS_KEY') | default('', true) }}
+      AWS_SESSION_TOKEN={{ lookup('env', 'AWS_SESSION_TOKEN') | default('', true) }}
       {% for env_var in item.env | default([]) %}
       {{ env_var }}
       {% endfor %}
@@ -39,6 +44,27 @@
   loop_control:
     label: "{{ item.name }}"
   when: item.compose | default(false)
+
+- name: Generowanie pliku aws-config dla Komiser
+  copy:
+    content: |
+      [default]
+      region = {{ lookup('env', 'AWS_REGION') }}
+      output = json
+    dest: "{{ apps_dir }}/komiser/aws-config"
+    mode: "0644"
+  when: apps | selectattr('name', 'equalto', 'komiser') | list | length > 0
+
+
+
+- name: Wczytanie pre-built obrazow z S3 (jesli istnieja)
+  shell: |
+    aws s3 cp s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/images/{{ item.name }}.tar.gz - | gunzip | docker load || echo "Brak pre-built obrazu dla {{ item.name }}"
+  loop: "{{ apps }}"
+  loop_control:
+    label: "{{ item.name }} (image load)"
+  when: item.compose | default(false)
+  changed_when: true
 
 - name: Wdrozenie aplikacji przez docker compose (jesli compose=true)
   shell: |

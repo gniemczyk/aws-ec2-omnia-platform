@@ -77,9 +77,9 @@
   changed_when: true
 
 # Wykluczenie sieci AWS (VPC, Endpoints, SSM) z tunelu WARP
-- name: Wykluczenie adresów lokalnych VPC i AWS z tunelu WARP
+- name: Wykluczenie adresów lokalnych VPC, AWS oraz ruchu IPv6 z tunelu WARP
   ansible.builtin.shell: |
-    for range in 169.254.169.254/32 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do
+    for range in 169.254.169.254/32 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 ::/0; do
         timeout 5 warp-cli --accept-tos tunnel ip add-range $range || true
     done
   changed_when: false

@@ -272,6 +272,8 @@ Szczegóły konfiguracji, lista dostępnych aplikacji i instrukcja dodawania now
 
 Projekt demonstruje zaawansowane podejście DevOps do bezpieczeństwa, infrastruktury jako kodu (IaC) oraz optymalizacji kosztów:
 
+- **Centralny monitoring (FinOps & CSPM):** Zintegrowane narzędzia m.in. Grafana oraz Komiser (Cloud Environment Inspector). Komiser używając natywnej roli IAM instancji generuje z lotu ptaka bezpieczny podgląd na architekturę i ukryte koszty ze wszystkich regionów AWS.
+
 - **Ukryte wyjście na świat (Cloudflare WARP):** Instancja EC2 celowo nie posiada publicznego adresu IPv4, co znacząco obniża koszty AWS (EIP). Komunikacja w stronę klasycznego internetu IPv4 tunelowana jest bezpiecznie przez wdrożonego klienta WARP (`ansible/tasks/warp.yml`), dostarczając tzw. "kamuflaż" NAT64. Serwer ma dostęp do internetu, ale internet nie widzi serwera.
 - **Zero Inbound (Zamknięta Twierdza):** Security Group w AWS nie posiada żadnych reguł Ingress. Port 22 fizycznie nie funkcjonuje, pliki z kluczami SSH na maszynie nie istnieją. Wystawienie usług webowych na świat realizowane jest wyłącznie przez odwrócone tunele (`cloudflared`).
 - **Zarządzanie wyłącznie przez AWS Systems Manager (SSM)** autoryzowane via IAM, z wewnętrznym ruchem po bezpłatnym AWS Gateway Endpoint.
