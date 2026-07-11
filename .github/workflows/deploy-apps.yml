@@ -211,6 +211,14 @@ jobs:
       # =====================================================================
       # KROK 3: Build obrazu Komiser (ARM64) na runnerze i upload do S3
       # =====================================================================
+      - name: Konfiguracja QEMU i Docker Buildx
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Konfiguracja Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build obrazu Komiser (ARM64) przez buildx
         run: |
           echo "🔨 Build obrazu Komiser dla linux/arm64..."
