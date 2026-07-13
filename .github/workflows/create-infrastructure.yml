@@ -11,6 +11,12 @@ name: "Utwórz Infrastrukturę"
 
 on:
   workflow_dispatch:
+    inputs:
+      preferred_az_index:
+        description: "Indeks AZ (0 = pierwsza dostepna). Zmien po InsufficientInstanceCapacity."
+        required: true
+        default: "0"
+        type: string
 
 # Wymagane uprawnienia do uwierzytelniania AWS OIDC
 permissions:
@@ -25,6 +31,7 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       PLATFORM_NAME: ${{ vars.PLATFORM_NAME }}
+      PREFERRED_AZ_INDEX: ${{ inputs.preferred_az_index }}
       AUTO_APPROVE: true
     outputs:
       instance_id: ${{ steps.terraform-output.outputs.instance_id }}
@@ -155,7 +162,13 @@ jobs:
           
           echo "  ℹ️  Liczba zasobów w terraform.tfstate: $RESOURCE_COUNT"
           
-          if [ "$RESOURCE_COUNT" -gt 0 ]; then
+          # Nie blokuj retry po nieudanym create EC2 (np. InsufficientInstanceCapacity).
+          # Terraform zachowuje wtedy VPC/subnet w state, ale aws_instance.platform nie
+          # ma zadnej instancji. Kolejny apply z innym preferred_az_index moze bezpiecznie
+          # kontynuowac ten sam state.
+          INSTANCE_COUNT=$(echo "$TFSTATE" | jq '[.resources[]? | select(.type == "aws_instance" and .name == "platform") | .instances[]?] | length' 2>/dev/null || echo "0")
+
+          if [ "$RESOURCE_COUNT" -gt 0 ] && [ "$INSTANCE_COUNT" -gt 0 ]; then
             # --- SCENARIUSZ B: Infrastruktura istnieje! ---
             echo ""
             echo "::error::❌ INFRASTRUKTURA JUŻ ISTNIEJE!"
@@ -185,11 +198,16 @@ jobs:
             exit 1
           fi
           
-          # --- SCENARIUSZ C: Pusty tfstate (apply sie uruchomil ale nic nie stworzyl) ---
-          echo "✅ Scenariusz C: terraform.tfstate istnieje ale jest pusty (0 zasobów)"
-          echo "   → Poprzedni run nie stworzył żadnych zasobów"
-          echo "   → Kontynuuje tworzenie infrastruktury"
-          echo "INFRA_STATE=stale" >> $GITHUB_OUTPUT
+          if [ "$RESOURCE_COUNT" -gt 0 ]; then
+            echo "⚠️  Scenariusz C: niekompletny state bez instancji EC2"
+            echo "   → Kontynuuje ten sam state; można wybrać inny preferred_az_index"
+            echo "INFRA_STATE=partial" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Scenariusz D: terraform.tfstate istnieje ale jest pusty (0 zasobów)"
+            echo "   → Poprzedni run nie stworzył żadnych zasobów"
+            echo "   → Kontynuuje tworzenie infrastruktury"
+            echo "INFRA_STATE=stale" >> $GITHUB_OUTPUT
+          fi
 
       # =====================================================================
       # KROK 5: Bootstrap Backend (S3 + DynamoDB) - IDEMPOTENTNY
@@ -385,6 +403,7 @@ jobs:
           terraform plan \
             -var="aws_region=${{ env.AWS_REGION }}" \
             -var="project_name=${{ env.PLATFORM_NAME }}" \
+            -var="preferred_az_index=${{ env.PREFERRED_AZ_INDEX }}" \
             -var="ssm_s3_bucket_name=${{ env.BUCKET_NAME }}" \
             -no-color \
             -out=tfplan

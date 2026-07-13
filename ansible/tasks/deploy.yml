@@ -25,9 +25,8 @@
       APP_PORT={{ item.port }}
       AWS_DEFAULT_REGION={{ lookup('env', 'AWS_REGION') }}
       AWS_REGION={{ lookup('env', 'AWS_REGION') }}
-      AWS_ACCESS_KEY_ID={{ lookup('env', 'AWS_ACCESS_KEY_ID') | default('', true) }}
-      AWS_SECRET_ACCESS_KEY={{ lookup('env', 'AWS_SECRET_ACCESS_KEY') | default('', true) }}
-      AWS_SESSION_TOKEN={{ lookup('env', 'AWS_SESSION_TOKEN') | default('', true) }}
+      # Nie przekazujemy tymczasowych credentials GitHub Actions na EC2.
+      # Aplikacje AWS korzystaja z minimalnej roli przypisanej do instancji (IMDSv2).
       {% for env_var in item.env | default([]) %}
       {{ env_var }}
       {% endfor %}

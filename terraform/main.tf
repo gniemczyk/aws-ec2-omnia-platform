@@ -2,8 +2,9 @@
 # Omnia Platform - Konfiguracja Terraform
 # =============================================================================
 # Wszechstronna platforma EC2 z kontenerami Docker.
-# Wszystkie wartosci sa parametryzowane - BRAK hardcode.
-# AZ failover: jesli preferowana strefa nie ma pojemnosci, przechodzi do nastepnej.
+# Kluczowe wartosci infrastruktury sa parametryzowane.
+# Terraform wybiera jedna AZ; nie ma API pozwalajacego sprawdzic capacity instancji
+# przed jej utworzeniem. Dla failoveru capacity potrzebny jest ASG z wieloma subnetami.
 # =============================================================================
 
 terraform {
@@ -87,8 +88,8 @@ locals {
   # Lista dostepnych stref AZ w regionie
   available_azs = data.aws_availability_zones.available.names
 
-  # Wybrana strefa AZ z preferencja na preferred_az_index
-  # Jesli indeks poza zakresem - wraca do indexu 0
+  # Deterministycznie wybrana AZ. Modulo pozwala uzyc indeksu z dluzszej listy.
+  # Data source zwraca tylko AZ dostepne w regionie, nie capacity konkretnego typu EC2.
   selected_az_index = var.preferred_az_index % length(local.available_azs)
   selected_az       = local.available_azs[local.selected_az_index]
 
@@ -141,7 +142,7 @@ resource "aws_egress_only_internet_gateway" "platform" {
   }
 }
 
-# Podsiec z IPv6 - umieszczona w wybranej strefie AZ (z failoverem)
+# Podsiec z IPv6 - umieszczona w wybranej strefie AZ
 resource "aws_subnet" "platform" {
   vpc_id            = aws_vpc.platform.id
   cidr_block        = var.subnet_cidr
@@ -271,14 +272,9 @@ resource "aws_iam_role_policy_attachment" "ssm_core" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# Polityka ReadOnlyAccess - dla narzedzi audytowych (np. Komiser)
-resource "aws_iam_role_policy_attachment" "readonly_access" {
-  role       = aws_iam_role.platform_instance.name
-  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
-}
-
-# Polityka CloudWatch + EC2 Read - ZAWSZE dostepna (niezależna od S3/SSM)
-# Wymagana przez Grafane do odczytu metryk i listy instancji
+# Minimalna polityka CloudWatch + EC2 Read dla Grafany i podstawowego widoku Komiser.
+# Celowo nie uzywamy AWS managed ReadOnlyAccess: wszystkie kontenery na instancji
+# moga uzyskac credentials instancji przez IMDS.
 resource "aws_iam_role_policy" "cloudwatch_read" {
   name = "cloudwatch-read"
   role = aws_iam_role.platform_instance.id
@@ -463,9 +459,11 @@ EOF
   )
 
   metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"
-    http_put_response_hop_limit = 2
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+    # Blokuje dostep do IMDS z kontenerow korzystajacych z bridge network.
+    # Aplikacje z network_mode: host nadal dzialaja jako proces hosta.
+    http_put_response_hop_limit = 1
   }
 
   tags = {

@@ -25,9 +25,9 @@
     cmd: gpg --yes --dearmor --output /usr/share/keyrings/docker-archive-keyring.gpg /tmp/docker.gpg
     creates: /usr/share/keyrings/docker-archive-keyring.gpg
 
-- name: Dodanie repozytorium APT Docker (arm64)
+- name: Dodanie repozytorium APT Docker dla aktualnego wydania Debian (arm64)
   ansible.builtin.apt_repository:
-    repo: "deb [arch=arm64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bookworm stable"
+    repo: "deb [arch=arm64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
     state: present
     filename: docker
     update_cache: yes

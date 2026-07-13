@@ -13,20 +13,17 @@ Aplikacja dostępna pod adresem: `http://localhost:3001`
 
 ## Konfiguracja połączenia z AWS
 
-### Opcja 1 (rekomendowana) - przez zmienne środowiskowe
+### Opcja 1 (rekomendowana na platformie) - rola IAM instancji
 
-Przed uruchomieniem utwórz plik `.env` na podstawie `.env.example` i wpisz klucze IAM:
-
-```bash
-cp .env.example .env
-# edytuj .env - wpisz AWS_ACCESS_KEY_ID i AWS_SECRET_ACCESS_KEY
-```
-
-Następnie uruchom kontener:
+Wdrożona platforma nie przekazuje do kontenera poświadczeń GitHub Actions ani
+statycznych kluczy. Komiser używa domyślnego AWS credential chain i pobiera
+tymczasowe poświadczenia z roli IAM przypisanej do EC2.
 
 ```bash
 docker compose up -d --build
 ```
+
+Zakres widocznych zasobów jest celowo ograniczony do polityki roli instancji.
 
 ### Opcja 2 - przez UI Cloud Accounts
 
@@ -37,12 +34,14 @@ Jeśli kontener jest już uruchomiony, możesz dodać konto ręcznie:
 3. Wpisz nazwę, `Access Key ID` i `Secret Access Key`
 4. Po zapisaniu Komiser rozpocznie skanowanie
 
-> ⚠️ **Uwaga:** Klucze IAM muszą mieć przypisaną politykę **ReadOnlyAccess** (`arn:aws:iam::aws:policy/ReadOnlyAccess`).
+> ⚠️ **Uwaga:** Do szerszego audytu utwórz osobną, dedykowaną rolę auditową z
+> minimalnym zakresem. Nie przypisuj `ReadOnlyAccess` do roli EC2 ani nie
+> umieszczaj długowiecznych kluczy AWS w pliku `.env`.
 
 ## Troubleshooting
 
 | Objaw | Przyczyna | Rozwiązanie |
 |-------|-----------|-------------|
-| `no EC2 IMDS role found` | Brak kredencjałów AWS | Dodaj Cloud Account ręcznie (instrukcja wyżej) |
+| `no EC2 IMDS role found` | Kontener nie ma roli instancji | Uruchom aplikację na wdrożonej EC2 lub skonfiguruj dedykowaną rolę auditową |
 | `incorrect costexplorerOutputList` | Brak dostępu do Cost Explorer | Dodaj `aws:ce:*` do polityki IAM |
-| `Failed to list IAM users` | Zbyt ograniczona polityka | Użyj `ReadOnlyAccess` zamiast customowej |
+| `Failed to list IAM users` | Zbyt ograniczona polityka | Dodaj wyłącznie wymagane akcje do dedykowanej roli auditowej |

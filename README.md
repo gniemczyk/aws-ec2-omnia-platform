@@ -1,6 +1,6 @@
 # AWS EC2 Omnia Platform and Applications
 
-Wszechstronna platforma EC2 z kontenerami Docker, sterowana plikiem `apps.json` i katalogiem `app/`. Uruchamiana jednym kliknięciem w GitHub Actions. Zero otwartych portów, zero SSH, zero hardcode. Zoptymalizowana kosztowo dzięki rezygnacji z publicznego adresu IPv4 – instancja posiada wyłącznie IPv6, a z klasycznym internetem komunikuje się przez "ukryte" wyjście na świat via Cloudflare WARP.
+Wszechstronna platforma EC2 z kontenerami Docker, sterowana plikiem `apps.json` i katalogiem `app/`. Uruchamiana jednym kliknięciem w GitHub Actions. Zero reguł ingress i zero SSH; bez hardcoded sekretów oraz identyfikatorów infrastruktury. Zoptymalizowana kosztowo dzięki rezygnacji z publicznego adresu IPv4 – instancja posiada wyłącznie IPv6, a z klasycznym internetem komunikuje się przez "ukryte" wyjście na świat via Cloudflare WARP.
 
 ## Architektura
 
@@ -149,7 +149,7 @@ GitHub -> Actions -> "Utwórz Infrastrukturę" -> Run workflow
 **Co się stanie:**
 - ✅ Automatyczna konfiguracja backendu (S3 bucket + native locking)
 - ✅ Terraform tworzy VPC, Subnet, Security Group, EC2, VPC Endpoints (SSM + S3)
-- ✅ Dynamiczny failover AZ - jeśli brakuje capacity, próbuje następną
+- ✅ Deterministyczny wybór AZ przez parametr workflow `preferred_az_index`
 - ✅ **Parametry automatycznie zapisane w AWS SSM Parameter Store** (`/<PLATFORM_NAME>/` prefix):
   - `/<PLATFORM_NAME>/EC2_INSTANCE_ID`
   - `/<PLATFORM_NAME>/AWS_REGION`
@@ -217,16 +217,12 @@ Wszystkie parametry konfiguracyjne są przechowywane w **AWS Systems Manager Par
 
 ---
 
-Terraform automatycznie:
-1. Pobiera wszystkie dostępne AZ w regionie
-2. Sprawdza, które AZ mają dostępny `t4g.small`
-3. Zaczyna od preferowanej AZ (`preferred_az_index`)
-4. Jeśli brakuje capacity - przechodzi do następnej AZ
-5. Jeśli żadna AZ nie ma pojemności - wyrzuca błąd z komunikatem
-
-**Poprzednio:** Trzeba było ręcznie zmieniać `preferred_az_index` w `tfvars`.
-
-**Teraz:** Automatycznie próbuje kolejne AZ!
+Terraform pobiera dostępne AZ w regionie i wybiera jedną z nich na podstawie
+`preferred_az_index`. AWS nie udostępnia wiarygodnego pre-checku capacity dla
+konkretnego typu EC2, więc przy `InsufficientInstanceCapacity` uruchom ponownie
+workflow **„Utwórz Infrastrukturę”** i podaj inny `preferred_az_index`. Workflow
+kontynuuje wtedy niekompletny state bez instancji EC2. Automatyczny failover
+capacity wymaga architektury z Auto Scaling Group oraz subnetami w wielu AZ.
 
 ## Workflow GitHub Actions
 
@@ -272,7 +268,7 @@ Szczegóły konfiguracji, lista dostępnych aplikacji i instrukcja dodawania now
 
 Projekt demonstruje zaawansowane podejście DevOps do bezpieczeństwa, infrastruktury jako kodu (IaC) oraz optymalizacji kosztów:
 
-- **Centralny monitoring (FinOps & CSPM):** Zintegrowane narzędzia m.in. Grafana oraz Komiser (Cloud Environment Inspector). Komiser używając natywnej roli IAM instancji generuje z lotu ptaka bezpieczny podgląd na architekturę i ukryte koszty ze wszystkich regionów AWS.
+- **Centralny monitoring (FinOps & CSPM):** Zintegrowane narzędzia m.in. Grafana oraz Komiser (Cloud Environment Inspector). Komiser używa minimalnej roli IAM instancji i pokazuje wyłącznie zasoby objęte jej polityką; do pełnego audytu należy użyć osobnej roli auditowej.
 
 - **Ukryte wyjście na świat (Cloudflare WARP):** Instancja EC2 celowo nie posiada publicznego adresu IPv4, co znacząco obniża koszty AWS (EIP). Komunikacja w stronę klasycznego internetu IPv4 tunelowana jest bezpiecznie przez wdrożonego klienta WARP (`ansible/tasks/warp.yml`), dostarczając tzw. "kamuflaż" NAT64. Serwer ma dostęp do internetu, ale internet nie widzi serwera.
 - **Zero Inbound (Zamknięta Twierdza):** Security Group w AWS nie posiada żadnych reguł Ingress. Port 22 fizycznie nie funkcjonuje, pliki z kluczami SSH na maszynie nie istnieją. Wystawienie usług webowych na świat realizowane jest wyłącznie przez odwrócone tunele (`cloudflared`).
