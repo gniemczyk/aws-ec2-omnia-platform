@@ -73,6 +73,13 @@
       ansible.builtin.import_tasks: tasks/config.yml
 
     # =========================================================================
+    # FAZA 4.5: Build Komiser lokalnie na EC2 (ARM64 native)
+    # =========================================================================
+
+    - name: FAZA 4.5 - Build Komiser (native ARM64 na EC2)
+      ansible.builtin.import_tasks: tasks/build-komiser.yml
+
+    # =========================================================================
     # FAZA 5: Deploy kontenerow Docker
     # =========================================================================
 
