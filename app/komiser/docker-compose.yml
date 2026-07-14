@@ -12,6 +12,9 @@
 services:
   komiser:
     image: tailwarden/komiser:3.1.22
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: omnia-komiser
     restart: unless-stopped
     network_mode: host
