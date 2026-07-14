@@ -59,7 +59,7 @@
       
     - name: Weryfikacja architektury Komisera
       shell: |
-        ARCH=$(docker inspect tailwarden/komiser:3.1.22 --format '{{.Architecture}}' 2>/dev/null || echo "unknown")
+        ARCH=$(docker inspect tailwarden/komiser:3.1.22 --format '{% raw %}{{.Architecture}}{% endraw %}' 2>/dev/null || echo "unknown")
         echo "Architektura obrazu: $ARCH"
         if [ "$ARCH" != "arm64" ]; then
           echo "❌ BŁĄD: $ARCH (oczekiwano arm64)"
