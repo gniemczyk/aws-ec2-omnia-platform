@@ -106,6 +106,7 @@
     label: "{{ item.name }} (docker compose)"
   when: item.compose | default(false)
   register: compose_results
+  timeout: 1200  # 20 minut dla build (Komiser npm + go build)
 
 - name: Wdrozenie aplikacji przez docker run (jesli compose=false)
   shell: |
