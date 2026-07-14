@@ -39,6 +39,7 @@
         echo "✅ Obraz Komiser zbudowany"
       when: komiser_dockerfile.stat.exists
       register: komiser_build_result
+      timeout: 600  # 10 minut dla docker build
       
     - name: Weryfikacja architektury Komisera
       shell: |
