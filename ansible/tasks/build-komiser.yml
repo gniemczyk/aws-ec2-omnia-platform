@@ -19,12 +19,10 @@
 
     - name: Build image Komiser bezpośrednio na EC2
       shell: |
-        nohup bash -c '
         set -euo pipefail
-        echo "🔨 Build obrazu Komiser na EC2 (native ARM64)..." > /tmp/komiser-build.log 2>&1
+        echo "🔨 Build obrazu Komiser na EC2 (native ARM64)..."
         cd {{ apps_dir }}/komiser
         
-        # Ustal architekturę EC2
         ARCH=$(uname -m)
         case "$ARCH" in
           aarch64) TARGETARCH="arm64" ;;
@@ -32,30 +30,27 @@
           *) TARGETARCH="$ARCH" ;;
         esac
         
+        echo "TARGETARCH=$TARGETARCH"
         docker build \
           --tag tailwarden/komiser:3.1.22 \
           --build-arg TARGETARCH=$TARGETARCH \
           -f Dockerfile \
-          . >> /tmp/komiser-build.log 2>&1
+          .
         
-        echo "✅ Obraz Komiser zbudowany" >> /tmp/komiser-build.log 2>&1
-        ' > /dev/null 2>&1 &
-        
-        echo "Build started in background, waiting for completion..."
-        for i in $(seq 1 120); do
-          if docker inspect tailwarden/komiser:3.1.22 >/dev/null 2>&1; then
-            echo "✅ Obraz Komiser ready!"
-            cat /tmp/komiser-build.log
-            break
-          fi
-          sleep 5
-          if [ $((i % 12)) -eq 0 ]; then
-            echo "Still building... ($(($i * 5))s elapsed)"
-            tail -3 /tmp/komiser-build.log 2>/dev/null || true
-          fi
-        done
+        echo "✅ Obraz Komiser zbudowany"
       when: komiser_dockerfile.stat.exists
       register: komiser_build_result
+      async: 1200
+      poll: 0
+      
+    - name: Czekaj na build Komisera (maks 20 minut)
+      async_status:
+        jid: "{{ komiser_build_result.ansible_job_id }}"
+      register: build_job_result
+      until: build_job_result.finished
+      retries: 240
+      delay: 5
+      when: komiser_dockerfile.stat.exists and komiser_build_result is not skipped
       
     - name: Weryfikacja architektury Komisera
       shell: |
