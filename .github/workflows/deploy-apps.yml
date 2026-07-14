@@ -216,27 +216,27 @@ jobs:
         with:
           platforms: arm64
 
-       - name: Konfiguracja Docker Buildx
-         uses: docker/setup-buildx-action@v3
+      - name: Konfiguracja Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-       - name: Build obrazu Komiser (ARM64) przez buildx
-         run: |
-           echo "🔨 Build obrazu Komiser dla linux/arm64..."
-           docker buildx build \
-             --platform linux/arm64 \
-             --load \
-             -t tailwarden/komiser:3.1.22 \
-             -f app/komiser/Dockerfile \
-             app/komiser
+      - name: Build obrazu Komiser (ARM64) przez buildx
+        run: |
+          echo "🔨 Build obrazu Komiser dla linux/arm64..."
+          docker buildx build \
+            --platform linux/arm64 \
+            --load \
+            -t tailwarden/komiser:3.1.22 \
+            -f app/komiser/Dockerfile \
+            app/komiser
 
-           echo "💾 Kompresja i upload do S3..."
-           docker save tailwarden/komiser:3.1.22 | gzip | \
-             aws s3 cp - s3://${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}/images/komiser.tar.gz
+          echo "💾 Kompresja i upload do S3..."
+          docker save tailwarden/komiser:3.1.22 | gzip | \
+            aws s3 cp - s3://${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}/images/komiser.tar.gz
 
-           echo "✅ Obraz Komiser zbudowany i wgryty do S3"
-           docker image rm tailwarden/komiser:3.1.22
+          echo "✅ Obraz Komiser zbudowany i wgryty do S3"
+          docker image rm tailwarden/komiser:3.1.22
 
-       # =====================================================================
+      # =====================================================================
       # KROK 4: Instalacja Ansible i zaleznosci
       # =====================================================================
       - name: Instalacja Ansible i pluginu AWS SSM
@@ -302,10 +302,9 @@ jobs:
           GRAFANA_USER: ${{ steps.ssm-params.outputs.grafana_user }}
           GRAFANA_PASSWORD: ${{ steps.grafana-password.outputs.password }}
           ANSIBLE_HOST_KEY_CHECKING: "False"
-        working-directory: ansible
         run: |
-          ansible-playbook playbook-apps.yml \
-            -i inventory.yml \
+          ansible-playbook ansible/playbook-apps.yml \
+            -i ansible/inventory.yml \
             -v \
             --timeout 120 \
             --extra-vars "grafana_admin_user=$GRAFANA_USER grafana_admin_password=$GRAFANA_PASSWORD"
