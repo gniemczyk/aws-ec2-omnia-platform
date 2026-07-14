@@ -42,7 +42,7 @@
         ' > /dev/null 2>&1 &
         
         echo "Build started in background, waiting for completion..."
-        for i in {1..120}; do
+        for i in $(seq 1 120); do
           if docker inspect tailwarden/komiser:3.1.22 >/dev/null 2>&1; then
             echo "✅ Obraz Komiser ready!"
             cat /tmp/komiser-build.log
