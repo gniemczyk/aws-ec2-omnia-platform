@@ -294,6 +294,7 @@ jobs:
           GRAFANA_USER: ${{ steps.ssm-params.outputs.grafana_user }}
           GRAFANA_PASSWORD: ${{ steps.grafana-password.outputs.password }}
           ANSIBLE_HOST_KEY_CHECKING: "False"
+          ANSIBLE_CONFIG: "ansible/ansible.cfg"
         run: |
           ansible-playbook ansible/playbook-apps.yml \
             -i ansible/inventory.yml \
