@@ -16,7 +16,7 @@
 - name: "Omnia Platform - Wdrozenie aplikacji"
   hosts: omnia_instance
   become: true
-  gather_facts: false
+  gather_facts: true
 
   vars:
     # Sciezki
