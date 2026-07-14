@@ -294,9 +294,10 @@ jobs:
           GRAFANA_USER: ${{ steps.ssm-params.outputs.grafana_user }}
           GRAFANA_PASSWORD: ${{ steps.grafana-password.outputs.password }}
           ANSIBLE_HOST_KEY_CHECKING: "False"
+        working-directory: ansible
         run: |
-          ansible-playbook ansible/playbook-apps.yml \
-            -i ansible/inventory.yml \
+          ansible-playbook playbook-apps.yml \
+            -i inventory.yml \
             -v \
             --timeout 120 \
             --extra-vars "grafana_admin_user=$GRAFANA_USER grafana_admin_password=$GRAFANA_PASSWORD"
