@@ -62,14 +62,15 @@
     S3_FILE="s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/images/{{ item.name }}.tar.gz"
     if aws s3 cp "$S3_FILE" /tmp/{{ item.name }}-image.tar.gz 2>/dev/null; then
       gunzip -f /tmp/{{ item.name }}-image.tar.gz
-      docker load -i /tmp/{{ item.name }}-image.tar
+      LOAD_OUTPUT=$(docker load -i /tmp/{{ item.name }}-image.tar 2>&1)
       rm -f /tmp/{{ item.name }}-image.tar
-      # Weryfikacja architektury zaladowanego obrazu
-      LOADED_TAG=$(docker images --format '{% raw %}{{.Repository}}:{{.Tag}}{% endraw %}' | grep komiser | head -1)
+      echo "$LOAD_OUTPUT"
+      # Wyodrebnij tag obrazu z outputu docker load
+      LOADED_TAG=$(echo "$LOAD_OUTPUT" | sed -n 's/^Loaded image: //p' | head -1)
       if [ -n "$LOADED_TAG" ]; then
-        ARCH=$(docker inspect "$LOADED_TAG" --format '{{.Architecture}}' 2>/dev/null || echo "unknown")
+        ARCH=$(docker inspect "$LOADED_TAG" --format '{% raw %}{{.Architecture}}{% endraw %}' 2>/dev/null || echo "unknown")
         if [ "$ARCH" != "arm64" ]; then
-          echo "UWAGA: Obraz $LOADED_TAG ma architekture $ARCH (oczekiwano arm64). Usuwanie - Docker Compose pobierze prawidlowy obraz z Docker Hub."
+          echo "UWAGA: Obraz $LOADED_TAG ma architekture $ARCH (oczekiwano arm64). Usuwanie."
           docker image rm "$LOADED_TAG" 2>/dev/null || true
         else
           echo "OK: Obraz $LOADED_TAG zaladowany z S3 (architektura: $ARCH)"
