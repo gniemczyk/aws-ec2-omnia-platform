@@ -58,7 +58,26 @@
 
 - name: Wczytanie pre-built obrazow z S3 (jesli istnieja)
   shell: |
-    aws s3 cp s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/images/{{ item.name }}.tar.gz - | gunzip | docker load || echo "Brak pre-built obrazu dla {{ item.name }}"
+    set -euo pipefail
+    S3_FILE="s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/images/{{ item.name }}.tar.gz"
+    if aws s3 cp "$S3_FILE" /tmp/{{ item.name }}-image.tar.gz 2>/dev/null; then
+      gunzip -f /tmp/{{ item.name }}-image.tar.gz
+      docker load -i /tmp/{{ item.name }}-image.tar
+      rm -f /tmp/{{ item.name }}-image.tar
+      # Weryfikacja architektury zaladowanego obrazu
+      LOADED_TAG=$(docker images --format '{% raw %}{{.Repository}}:{{.Tag}}{% endraw %}' | grep komiser | head -1)
+      if [ -n "$LOADED_TAG" ]; then
+        ARCH=$(docker inspect "$LOADED_TAG" --format '{{.Architecture}}' 2>/dev/null || echo "unknown")
+        if [ "$ARCH" != "arm64" ]; then
+          echo "UWAGA: Obraz $LOADED_TAG ma architekture $ARCH (oczekiwano arm64). Usuwanie - Docker Compose pobierze prawidlowy obraz z Docker Hub."
+          docker image rm "$LOADED_TAG" 2>/dev/null || true
+        else
+          echo "OK: Obraz $LOADED_TAG zaladowany z S3 (architektura: $ARCH)"
+        fi
+      fi
+    else
+      echo "INFO: Brak pre-built obrazu w S3 dla {{ item.name }}. Docker Compose pobierze z Docker Hub."
+    fi
   loop: "{{ apps }}"
   loop_control:
     label: "{{ item.name }} (image load)"
