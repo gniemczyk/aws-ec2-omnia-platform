@@ -56,6 +56,17 @@
 
 
 
+- name: Usuwanie starych obrazow komiser jesli maja zla architekture
+  shell: |
+    TAG="tailwarden/komiser:3.1.22"
+    EXISTING=$(docker inspect "$TAG" --format '{% raw %}{{.Architecture}}{% endraw %}' 2>/dev/null || echo "missing")
+    if [ "$EXISTING" != "arm64" ] && [ "$EXISTING" != "missing" ]; then
+      echo "Usuwanie obrazu $TAG (architektura: $EXISTING)"
+      docker image rm "$TAG" 2>/dev/null || true
+    fi
+  changed_when: false
+  when: apps | selectattr('name', 'equalto', 'komiser') | list | length > 0
+
 - name: Wczytanie pre-built obrazow z S3 (jesli istnieja)
   shell: |
     set -euo pipefail
