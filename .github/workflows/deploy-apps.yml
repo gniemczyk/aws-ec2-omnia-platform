@@ -219,14 +219,22 @@ jobs:
       - name: Konfiguracja Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build obrazu Komiser (ARM64) przez buildx
-        run: |
-          echo "🔨 Build obrazu Komiser dla linux/arm64..."
-          echo ""
-          echo "UWAGA: Build jest teraz wykonywany bezpośrednio na instancji EC2"
-          echo "w trakcie deployment (zamiast cross-compile na x86_64 GitHub Runner)"
-          echo ""
-          echo "To zapewnia poprawną architekturę ARM64 bez problemów z exec format error"
+       - name: Build obrazu Komiser (ARM64) przez buildx
+         run: |
+           echo "🔨 Build obrazu Komiser dla linux/arm64..."
+           docker buildx build \
+             --platform linux/arm64 \
+             --load \
+             -t tailwarden/komiser:3.1.22 \
+             -f app/komiser/Dockerfile \
+             app/komiser
+
+           echo "💾 Kompresja i upload do S3..."
+           docker save tailwarden/komiser:3.1.22 | gzip | \
+             aws s3 cp - s3://${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}/images/komiser.tar.gz
+
+           echo "✅ Obraz Komiser zbudowany i wgryty do S3"
+           docker image rm tailwarden/komiser:3.1.22
 
       # =====================================================================
       # KROK 4: Instalacja Ansible i zaleznosci
