@@ -17,7 +17,7 @@
         path: "{{ apps_dir }}/komiser/Dockerfile"
       register: komiser_dockerfile
 
-    - name: Build image Komiser bezpośrednio na EC2
+    - name: Build image Komiser bezpośrednio na EC2 (async)
       shell: |
         set -euo pipefail
         echo "🔨 Build obrazu Komiser na EC2 (native ARM64)..."
@@ -39,7 +39,8 @@
         echo "✅ Obraz Komiser zbudowany"
       when: komiser_dockerfile.stat.exists
       register: komiser_build_result
-      timeout: 600  # 10 minut dla docker build
+      async: 1200  # 20 minut max dla background task
+      poll: 30    # Sprawdzaj status co 30 sekund
       
     - name: Weryfikacja architektury Komisera
       shell: |
