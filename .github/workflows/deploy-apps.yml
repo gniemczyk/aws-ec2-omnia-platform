@@ -28,7 +28,7 @@ env:
 jobs:
   deploy-apps:
     name: "Wdrożenie aplikacji i Cloudflare Tunnels"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -209,13 +209,9 @@ jobs:
           echo "✅ Wszystkie UIDs dashboardów są prawidłowe"
 
       # =====================================================================
-      # KROK 3: Build obrazu Komiser (ARM64) na runnerze i upload do S3
+      # KROK 3: Build obrazu Komiser (ARM64) na runnerze ARM i upload do S3
+      # Runner ubuntu-24.04-arm buduje natywnie (bez QEMU) -> szybko
       # =====================================================================
-      - name: Konfiguracja QEMU i Docker Buildx
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
       - name: Konfiguracja Docker Buildx
         uses: docker/setup-buildx-action@v3
 
