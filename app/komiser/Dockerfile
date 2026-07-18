@@ -17,13 +17,13 @@ COPY scripts/patch-credentials.py /tmp/patch-credentials.py
 COPY scripts/patch-accounts.py /tmp/patch-accounts.py
 RUN python3 /tmp/patch-credentials.py && python3 /tmp/patch-accounts.py
 
-FROM --platform=linux/arm64 golang:1.23-alpine AS go-builder
-ARG TARGETARCH=arm64
+FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS go-builder
+ARG TARGETARCH
 COPY --from=patcher /src /app
 COPY --from=frontend-builder /app/dashboard/out /app/dashboard/out
 WORKDIR /app
 RUN go mod download && \
-    GOARCH=arm64 CGO_ENABLED=0 go build \
+    GOARCH=$TARGETARCH CGO_ENABLED=0 go build \
     -ldflags="-s -w -X github.com/tailwarden/komiser/utils.Version=3.1.22" \
     -o /komiser .
 
