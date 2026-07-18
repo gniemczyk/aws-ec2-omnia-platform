@@ -209,21 +209,40 @@ jobs:
           echo "✅ Wszystkie UIDs dashboardów są prawidłowe"
 
       # =====================================================================
-      # KROK 3: Pobranie oficjalnego obrazu Komiser (ARM64) i upload do S3
-      # Obraz tailwarden/komiser:3.1.22 ma gotowy linux/arm64 na Docker Hub.
-      # Nie budujemy - tylko pull (z architektura arm64) + save + upload do S3.
-      # EC2 pobiera gotowy obraz z S3 (bez --build, bez QEMU).
+      # KROK 3: Build obrazu Komiser (ARM64) przez QEMU i upload do S3
+      # UWAGA: oficjalny obraz tailwarden/komiser:3.1.22 (nawet tag arm64)
+      # ma uszkodzony multi-arch - binarka wewnatrz to amd64 i daje
+      # 'exec format error' na Graviton (t4g). Dlatego budujemy wlasny
+      # obraz z poprawna arm64 binarka (patrz app/komiser/Dockerfile).
+      # Build pod QEMU jest wolny (~20 min), ale odbywa sie na runnerze,
+      # nie na EC2 (zeby nie wieszac instancji).
       # =====================================================================
-      - name: Pobranie oficjalnego obrazu Komiser (ARM64) i upload do S3
+      - name: Konfiguracja QEMU i Docker Buildx
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Konfiguracja Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build obrazu Komiser (ARM64) przez buildx
         run: |
-          echo "📥 Pobieranie oficjalnego obrazu tailwarden/komiser:3.1.22 (linux/arm64)..."
-          docker pull --platform linux/arm64 tailwarden/komiser:3.1.22
+          echo "🔨 Build obrazu Komiser dla linux/arm64 (poprawna binarka arm64)..."
+          docker buildx build \
+            --platform linux/arm64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --load \
+            -t tailwarden/komiser:3.1.22 \
+            -f app/komiser/Dockerfile \
+            app/komiser
 
           echo "💾 Kompresja i upload do S3..."
           docker save tailwarden/komiser:3.1.22 | gzip | \
             aws s3 cp - s3://${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}/images/komiser.tar.gz
 
-          echo "✅ Obraz Komiser pobrany i wgrany do S3"
+          echo "✅ Obraz Komiser zbudowany i wgryty do S3"
+          docker image rm tailwarden/komiser:3.1.22
 
       # =====================================================================
       # KROK 4: Instalacja Ansible i zaleznosci

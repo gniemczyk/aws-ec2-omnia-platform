@@ -56,13 +56,12 @@
 
 
 
-- name: Usuwanie starych obrazow komiser jesli maja zla architekture
+- name: Usuwanie starego obrazu komiser przed zaladowaniem z S3
   shell: |
     TAG="tailwarden/komiser:3.1.22"
-    EXISTING=$(docker inspect "$TAG" --format '{% raw %}{{.Architecture}}{% endraw %}' 2>/dev/null || echo "missing")
-    if [ "$EXISTING" != "arm64" ] && [ "$EXISTING" != "missing" ]; then
-      echo "Usuwanie obrazu $TAG (architektura: $EXISTING)"
-      docker image rm "$TAG" 2>/dev/null || true
+    if docker image inspect "$TAG" >/dev/null 2>&1; then
+      echo "Usuwanie istniejacego obrazu $TAG (zeby docker load go nie nadpisal warstwowo)..."
+      docker image rm -f "$TAG" 2>/dev/null || true
     fi
   changed_when: false
   when: apps | selectattr('name', 'equalto', 'komiser') | list | length > 0
