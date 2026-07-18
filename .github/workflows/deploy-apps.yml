@@ -209,37 +209,21 @@ jobs:
           echo "✅ Wszystkie UIDs dashboardów są prawidłowe"
 
       # =====================================================================
-      # KROK 3: Build obrazu Komiser (ARM64) przez QEMU na runnerze amd64
-      # Runner musi byc amd64 (ubuntu-latest), bo Session Manager Plugin
-      # nie ma wersji arm64 - wymagany do polaczenia aws_ssm w Ansible.
-      # Build arm64 odbywa sie pod QEMU (wolniej, ale na runnerze, nie EC2).
+      # KROK 3: Pobranie oficjalnego obrazu Komiser (ARM64) i upload do S3
+      # Obraz tailwarden/komiser:3.1.22 ma gotowy linux/arm64 na Docker Hub.
+      # Nie budujemy - tylko pull (z architektura arm64) + save + upload do S3.
+      # EC2 pobiera gotowy obraz z S3 (bez --build, bez QEMU).
       # =====================================================================
-      - name: Konfiguracja QEMU i Docker Buildx
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
-      - name: Konfiguracja Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build obrazu Komiser (ARM64) przez buildx
+      - name: Pobranie oficjalnego obrazu Komiser (ARM64) i upload do S3
         run: |
-          echo "🔨 Build obrazu Komiser dla linux/arm64..."
-          docker buildx build \
-            --platform linux/arm64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --load \
-            -t tailwarden/komiser:3.1.22 \
-            -f app/komiser/Dockerfile \
-            app/komiser
+          echo "📥 Pobieranie oficjalnego obrazu tailwarden/komiser:3.1.22 (linux/arm64)..."
+          docker pull --platform linux/arm64 tailwarden/komiser:3.1.22
 
           echo "💾 Kompresja i upload do S3..."
           docker save tailwarden/komiser:3.1.22 | gzip | \
             aws s3 cp - s3://${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}/images/komiser.tar.gz
 
-          echo "✅ Obraz Komiser zbudowany i wgryty do S3"
-          docker image rm tailwarden/komiser:3.1.22
+          echo "✅ Obraz Komiser pobrany i wgrany do S3"
 
       # =====================================================================
       # KROK 4: Instalacja Ansible i zaleznosci

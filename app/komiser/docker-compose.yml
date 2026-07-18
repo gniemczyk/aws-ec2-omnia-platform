@@ -4,15 +4,12 @@
 # Aplikacja do monitorowania i wizualizacji zasobow AWS (Cloud Environment Inspector)
 # Konto AWS dodaje sie recznie przez UI w zakladce Cloud Accounts.
 #
-# Build: `docker compose up -d --build` builduje natively na EC2 (ARM64)
-# Dockerfile sluzy do lokalnego builda oraz jako buildx source.
+# Obraz pobierany gotowy (linux/arm64) z Docker Hub przez workflow
+# i ladowany na EC2 z S3. Brak sekcji build - nie budujemy lokalnie.
 # =============================================================================
 
 services:
   komiser:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: tailwarden/komiser:3.1.22
     container_name: omnia-komiser
     restart: unless-stopped
