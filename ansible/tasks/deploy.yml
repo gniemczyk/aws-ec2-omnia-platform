@@ -25,8 +25,9 @@
       APP_PORT={{ item.port }}
       AWS_DEFAULT_REGION={{ lookup('env', 'AWS_REGION') }}
       AWS_REGION={{ lookup('env', 'AWS_REGION') }}
-      # Nie przekazujemy tymczasowych credentials GitHub Actions na EC2.
-      # Aplikacje AWS korzystaja z minimalnej roli przypisanej do instancji (IMDSv2).
+      AWS_ACCESS_KEY_ID={{ lookup('env', 'AWS_ACCESS_KEY_ID') | default('', true) }}
+      AWS_SECRET_ACCESS_KEY={{ lookup('env', 'AWS_SECRET_ACCESS_KEY') | default('', true) }}
+      AWS_SESSION_TOKEN={{ lookup('env', 'AWS_SESSION_TOKEN') | default('', true) }}
       {% for env_var in item.env | default([]) %}
       {{ env_var }}
       {% endfor %}
@@ -56,39 +57,9 @@
 
 
 
-- name: Usuwanie starego obrazu komiser przed zaladowaniem z S3
-  shell: |
-    TAG="tailwarden/komiser:3.1.22"
-    if docker image inspect "$TAG" >/dev/null 2>&1; then
-      echo "Usuwanie istniejacego obrazu $TAG (zeby docker load go nie nadpisal warstwowo)..."
-      docker image rm -f "$TAG" 2>/dev/null || true
-    fi
-  changed_when: false
-  when: apps | selectattr('name', 'equalto', 'komiser') | list | length > 0
-
 - name: Wczytanie pre-built obrazow z S3 (jesli istnieja)
   shell: |
-    set -euo pipefail
-    S3_FILE="s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/images/{{ item.name }}.tar.gz"
-    if aws s3 cp "$S3_FILE" /tmp/{{ item.name }}-image.tar.gz 2>/dev/null; then
-      gunzip -f /tmp/{{ item.name }}-image.tar.gz
-      LOAD_OUTPUT=$(docker load -i /tmp/{{ item.name }}-image.tar 2>&1)
-      rm -f /tmp/{{ item.name }}-image.tar
-      echo "$LOAD_OUTPUT"
-      # Wyodrebnij tag obrazu z outputu docker load
-      LOADED_TAG=$(echo "$LOAD_OUTPUT" | sed -n 's/^Loaded image: //p' | head -1)
-      if [ -n "$LOADED_TAG" ]; then
-        ARCH=$(docker inspect "$LOADED_TAG" --format '{% raw %}{{.Architecture}}{% endraw %}' 2>/dev/null || echo "unknown")
-        if [ "$ARCH" != "arm64" ]; then
-          echo "UWAGA: Obraz $LOADED_TAG ma architekture $ARCH (oczekiwano arm64). Usuwanie."
-          docker image rm "$LOADED_TAG" 2>/dev/null || true
-        else
-          echo "OK: Obraz $LOADED_TAG zaladowany z S3 (architektura: $ARCH)"
-        fi
-      fi
-    else
-      echo "INFO: Brak pre-built obrazu w S3 dla {{ item.name }}. Docker Compose pobierze z Docker Hub."
-    fi
+    aws s3 cp s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/images/{{ item.name }}.tar.gz - | gunzip | docker load || echo "Brak pre-built obrazu dla {{ item.name }}"
   loop: "{{ apps }}"
   loop_control:
     label: "{{ item.name }} (image load)"
@@ -99,7 +70,7 @@
   shell: |
     cd {{ apps_dir }}/{{ item.name }}
     docker compose down --remove-orphans 2>/dev/null || true
-    docker compose up -d
+    docker compose up -d --build
   loop: "{{ apps }}"
   loop_control:
     label: "{{ item.name }} (docker compose)"

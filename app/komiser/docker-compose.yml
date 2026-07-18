@@ -4,8 +4,9 @@
 # Aplikacja do monitorowania i wizualizacji zasobow AWS (Cloud Environment Inspector)
 # Konto AWS dodaje sie recznie przez UI w zakladce Cloud Accounts.
 #
-# Obraz pobierany gotowy (linux/arm64) z Docker Hub przez workflow
-# i ladowany na EC2 z S3. Brak sekcji build - nie budujemy lokalnie.
+# UWAGA: Obraz jest pre-budowany przez buildx na GitHub Runner i uploadowany
+# do S3. Na instancji jest pobierany i ladowany przez docker load przed deploy.
+# Dockerfile sluzy do lokalnego builda oraz jako buildx source.
 # =============================================================================
 
 services:
@@ -14,12 +15,15 @@ services:
     container_name: omnia-komiser
     restart: unless-stopped
     network_mode: host
+    command: ["komiser", "start", "--port", "3001"]
     volumes:
       - ./config.toml:/config.toml
       - ./aws-config:/home/komiser/.aws/config:ro
     environment:
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
       - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
     labels:
       platform: "omnia"
       app: "komiser"

@@ -23,7 +23,7 @@ COPY --from=patcher /src /app
 COPY --from=frontend-builder /app/dashboard/out /app/dashboard/out
 WORKDIR /app
 RUN go mod download && \
-    GOARCH=arm64 CGO_ENABLED=0 go build \
+    GOARCH=$TARGETARCH CGO_ENABLED=0 go build \
     -ldflags="-s -w -X github.com/tailwarden/komiser/utils.Version=3.1.22" \
     -o /komiser .
 
