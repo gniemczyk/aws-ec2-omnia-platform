@@ -29,7 +29,7 @@ jobs:
   deploy-apps:
     name: "Wdrożenie aplikacji i Cloudflare Tunnels"
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       PLATFORM_NAME: ${{ vars.PLATFORM_NAME }}
@@ -218,12 +218,16 @@ jobs:
 
       - name: Konfiguracja Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          buildkitd-flags: --debug
 
       - name: Build obrazu Komiser (ARM64) przez buildx
         run: |
           echo "🔨 Build obrazu Komiser dla linux/arm64..."
           docker buildx build \
             --platform linux/arm64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
             --load \
             -t tailwarden/komiser:3.1.22 \
             -f app/komiser/Dockerfile \
