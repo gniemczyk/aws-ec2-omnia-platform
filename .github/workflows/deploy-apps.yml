@@ -228,21 +228,18 @@ jobs:
       - name: Build obrazu Komiser (ARM64) przez buildx
         run: |
           echo "🔨 Build obrazu Komiser dla linux/arm64 (poprawna binarka arm64)..."
+          echo "📦 Build + kompresja + upload do S3 (bez --load, unika problemow z cross-platform)..."
           docker buildx build \
             --platform linux/arm64 \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
-            --load \
+            --output type=docker,dest=- \
             -t tailwarden/komiser:3.1.22 \
             -f app/komiser/Dockerfile \
-            app/komiser
-
-          echo "💾 Kompresja i upload do S3..."
-          docker save tailwarden/komiser:3.1.22 | gzip | \
+            app/komiser | gzip | \
             aws s3 cp - s3://${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}/images/komiser.tar.gz
 
           echo "✅ Obraz Komiser zbudowany i wgryty do S3"
-          docker image rm tailwarden/komiser:3.1.22
 
       # =====================================================================
       # KROK 4: Instalacja Ansible i zaleznosci
