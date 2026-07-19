@@ -59,12 +59,18 @@
 
 - name: Wczytanie pre-built obrazow z S3 (jesli istnieja)
   shell: |
-    aws s3 cp s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/images/{{ item.name }}.tar.gz - | gunzip | docker load || echo "Brak pre-built obrazu dla {{ item.name }}"
+    aws s3 cp s3://{{ lookup('env', 'SSM_S3_BUCKET_NAME') }}/artifacts/apps/{{ item.name }}.tar.gz - | gunzip | docker load || echo "Brak pre-built obrazu dla {{ item.name }}"
   loop: "{{ apps }}"
   loop_control:
     label: "{{ item.name }} (image load)"
   when: item.compose | default(false)
   changed_when: true
+
+- name: Weryfikacja obecnosci obrazu Komiser (wymagany pre-built)
+  shell: docker image inspect tailwarden/komiser:3.1.22 > /dev/null 2>&1
+  register: komiser_image_check
+  failed_when: komiser_image_check.rc != 0
+  when: apps | selectattr('name', 'equalto', 'komiser') | list | length > 0
 
 - name: Wdrozenie aplikacji przez docker compose (jesli compose=true)
   shell: |

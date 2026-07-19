@@ -237,7 +237,7 @@ jobs:
             -t tailwarden/komiser:3.1.22 \
             -f app/komiser/Dockerfile \
             app/komiser | gzip | \
-            aws s3 cp - s3://${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}/images/komiser.tar.gz
+            aws s3 cp - s3://${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}/artifacts/apps/komiser.tar.gz
 
           echo "✅ Obraz Komiser zbudowany i wgryty do S3"
 
