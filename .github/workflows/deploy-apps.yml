@@ -200,7 +200,7 @@ jobs:
           
           if [ $INVALID_UIDS -gt 0 ]; then
             echo ""
-            echo "::error::❌ Znaleźllem $INVALID_UIDS dashboardów z UIDs za długimi!"
+            echo "::error::❌ Znaleziono $INVALID_UIDS dashboardow z UIDs za dlugimi!"
             echo "::error::Grafana pozwala maksymalnie 40 znaków w UID."
             exit 1
           fi
@@ -239,7 +239,7 @@ jobs:
             app/komiser | gzip | \
             aws s3 cp - s3://${{ steps.ssm-params.outputs.ssm_s3_bucket_name }}/artifacts/apps/komiser.tar.gz
 
-          echo "✅ Obraz Komiser zbudowany i wgryty do S3"
+          echo "✅ Obraz Komiser zbudowany i wgrany do S3"
 
       # =====================================================================
       # KROK 4: Instalacja Ansible i zaleznosci
@@ -260,7 +260,7 @@ jobs:
           ansible --version
 
       # =====================================================================
-      # KROK 4: Zarzadzanie haslem Grafana przez SSM (runner -> SSM)
+      # KROK 4.5: Zarzadzanie haslem Grafana przez SSM (runner -> SSM)
       # Haslo jest generowane/pobierane tutaj (AWS CLI dziala na runnerze),
       # a nastepnie przekazywane do Ansible jako --extra-vars.
       # =====================================================================

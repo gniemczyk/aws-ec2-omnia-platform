@@ -33,7 +33,7 @@ jobs:
       - name: Instalacja Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          # Pinowana wersja - spatna ze wszystkimi workflow (use_lockfile wymaga >= 1.10)
+          # Pinowana wersja - spojna ze wszystkimi workflow (use_lockfile wymaga >= 1.10)
           terraform_version: "1.12.0"
 
       # =====================================================================

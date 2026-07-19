@@ -135,7 +135,7 @@ jobs:
           echo "::warning::- S3 Bucket: $BUCKET_NAME"
           echo "::warning::- SSM Parameters"
           echo ""
-          echo "::warning::TA OPERACJA JE NIEODWRACALNA!"
+          echo "::warning::TA OPERACJA JEST NIEODWRACALNA!"
           sleep 10
 
       # =====================================================================

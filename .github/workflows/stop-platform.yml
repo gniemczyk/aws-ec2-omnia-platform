@@ -6,7 +6,7 @@
 # Natychmiast zatrzymuje instancje EC2 i zamraza koszty obliczeniowe.
 # =============================================================================
 
-name: "Zatrzymaj Platform"
+name: "Zatrzymaj Platforme"
 
 on:
   workflow_dispatch:
@@ -131,7 +131,7 @@ jobs:
           role-session-name: github-actions-stop-platform
 
       # =====================================================================
-      # KROK 1: Walidacja potwierdzenia
+      # KROK 1.5: Walidacja potwierdzenia
       # =====================================================================
       - name: Walidacja potwierdzenia
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm != 'stop'
