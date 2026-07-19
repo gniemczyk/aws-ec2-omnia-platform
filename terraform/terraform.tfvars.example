@@ -31,8 +31,9 @@ subnet_cidr = "10.0.1.0/24"
 root_volume_size = 20
 root_volume_type = "gp3"
 
-# Preferowana strefa dostepnosci (0=a, 1=b, 2=c)
-# Jesli wybrana strefa nie ma pojemnosci - Terraform uzyje nastepnej dostepnej
+# Indeks wybranej strefy dostepnosci (0=a, 1=b, 2=c).
+# Terraform nie sprawdza capacity instancji; przy InsufficientInstanceCapacity
+# ustaw inny indeks i uruchom apply ponownie.
 preferred_az_index = 0
 
 # Srodowisko

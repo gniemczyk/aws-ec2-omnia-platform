@@ -12,10 +12,10 @@
 services:
   komiser:
     image: tailwarden/komiser:3.1.22
+    pull_policy: never
     container_name: omnia-komiser
     restart: unless-stopped
     network_mode: host
-    command: ["komiser", "start", "--port", "3001"]
     volumes:
       - ./config.toml:/config.toml
       - ./aws-config:/home/komiser/.aws/config:ro

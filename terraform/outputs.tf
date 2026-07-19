@@ -2,8 +2,8 @@
 # Wyjscia Terraform - Uzywane przez GitHub Actions i Ansible
 # =============================================================================
 
-output "selected_az_failover_info" {
-  description = "Informacja o wyborze AZ"
+output "selected_az_selection_info" {
+  description = "Informacja o deterministycznie wybranej AZ"
   value       = "AZ '${aws_instance.platform.availability_zone}' (preferred_az_index: ${var.preferred_az_index})"
 }
 
