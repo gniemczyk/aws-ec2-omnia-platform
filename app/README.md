@@ -6,9 +6,9 @@ Każda aplikacja ma własny podkatalog `app/<nazwa>/` z `Dockerfile` i `docker-c
 
 | Katalog | Opis |
 |---------|------|
-| [grafana/](grafana/) | Panel monitoringu Grafana OSS |
+| [grafana/](grafana/) | Panel monitoringu Grafana OSS — [instrukcja](grafana/README.md) |
 | [komiser/](komiser/) | Cloud Environment Inspector — [instrukcja konfiguracji](komiser/README.md) |
-| [portainer/](portainer/) | Docker Management UI (Portainer CE) |
+| [portainer/](portainer/) | Docker Management UI (Portainer CE) — [instrukcja](portainer/README.md) |
 
 ## Uruchamianie lokalne
 
