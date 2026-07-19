@@ -1,0 +1,11 @@
+# =============================================================================
+# Portainer CE - zmienne specificzne dla aplikacji
+# =============================================================================
+# PORTAINER_ADMIN_PASSWORD: hash hasla admina (bcrypt).
+# Jesli puste, Portainer poprosi o ustawienie hasla przy pierwszym logowaniu.
+#
+# Generowanie hash: docker run --rm portainer/helper-reset-password
+# lub: htpasswd -nbB "" "haslo" | cut -d: -f2
+# =============================================================================
+
+env_extra: {}

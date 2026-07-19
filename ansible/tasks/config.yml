@@ -44,6 +44,12 @@
     name: app_grafana
   when: apps | map(attribute='name') | select('equalto', 'grafana') | length > 0
 
+- name: Zaladowanie vars dla Portainer
+  include_vars:
+    file: apps/portainer.yml
+    name: app_portainer
+  when: apps | map(attribute='name') | select('equalto', 'portainer') | length > 0
+
 - name: Zaladowanie vars dla API
   include_vars:
     file: apps/api.yml

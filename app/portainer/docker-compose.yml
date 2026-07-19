@@ -1,0 +1,32 @@
+# =============================================================================
+# Portainer CE - Docker Compose
+# =============================================================================
+# Docker Management UI - wizualizacja kontenerow, obrazow, sieci, wolumenow.
+# Dostep do Docker Engine przez zamontowany socket.
+#
+# Lokalnie:  docker-compose up
+# Produkcja: wdrazane automatycznie przez Ansible (apps.json)
+# =============================================================================
+
+services:
+  portainer:
+    image: portainer/portainer-ce:2.27.3-alpine
+    container_name: omnia-portainer
+    restart: unless-stopped
+    network_mode: host
+    command: >
+      --http-enabled
+      --bind ":9000"
+      --tunnel-addr ""
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - portainer_data:/data
+    environment:
+      - PORTAINER_ADMIN_PASSWORD=${PORTAINER_ADMIN_PASSWORD:-}
+    labels:
+      platform: "omnia"
+      app: "portainer"
+
+volumes:
+  portainer_data:
+    driver: local

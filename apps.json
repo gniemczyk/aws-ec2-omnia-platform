@@ -14,6 +14,13 @@
     "env": []
   },
   {
+    "name": "portainer",
+    "image": "portainer/portainer-ce:2.27.3-alpine",
+    "port": 9000,
+    "compose": true,
+    "env": []
+  },
+  {
     "name": "api",
     "image": "nginx:1.27-alpine",
     "port": 80,

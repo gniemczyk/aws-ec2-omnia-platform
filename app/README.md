@@ -8,6 +8,7 @@ Każda aplikacja ma własny podkatalog `app/<nazwa>/` z `Dockerfile` i `docker-c
 |---------|------|
 | [grafana/](grafana/) | Panel monitoringu Grafana OSS |
 | [komiser/](komiser/) | Cloud Environment Inspector — [instrukcja konfiguracji](komiser/README.md) |
+| [portainer/](portainer/) | Docker Management UI (Portainer CE) |
 
 ## Uruchamianie lokalne
 
@@ -36,6 +37,7 @@ Każda aplikacja zawiera `.env.example` z opisem wymaganych zmiennych.
 | Grafana | `GRAFANA_ADMIN_USER` | Login admina (opcjonalny, domyślnie `admin`) |
 | Grafana | `GRAFANA_ADMIN_PASSWORD` | Hasło admina (opcjonalne, generowane losowo) |
 | Komiser | — | Klucze AWS dodawane przez UI, nie przez zmienne środowiskowe |
+| Portainer | — | Hasło admina ustawiane przy pierwszym logowaniu przez UI |
 
 Jeśli nie ustawisz secretów, hasło zostanie wygenerowane i zapisane w SSM Parameter Store.
 
