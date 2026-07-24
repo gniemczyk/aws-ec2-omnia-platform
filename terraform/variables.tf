@@ -52,9 +52,14 @@ variable "root_volume_type" {
 }
 
 variable "preferred_az_index" {
-  description = "Preferowany indeks strefy dostepnosci (0=a, 1=b, 2=c). Przy braku pojemnosci nastapi automatyczny failover."
+  description = "Indeks AZ wybieranej z listy dostepnych stref regionu (0=a, 1=b, 2=c). Nie jest to failover capacity; w razie InsufficientInstanceCapacity wybierz inny indeks lub uzyj ASG."
   type        = number
   default     = 0
+
+  validation {
+    condition     = var.preferred_az_index >= 0 && floor(var.preferred_az_index) == var.preferred_az_index
+    error_message = "preferred_az_index musi byc liczba calkowita >= 0."
+  }
 }
 
 variable "environment" {
